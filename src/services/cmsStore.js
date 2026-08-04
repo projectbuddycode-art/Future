@@ -1,10 +1,10 @@
 /**
- * Project Buddy CMS Store Service v2.5 — Cloud Persistent Engine
- * Ensures published CMS state is saved to & fetched from Supabase Database,
- * allowing Vercel visitors across ALL devices, tabs, and incognito windows to see live updates.
+ * Project Buddy CMS Store Service v3.0 — Production Persistence Engine
+ * Restricts localStorage fallback strictly to local development mode.
+ * In production, saving/publishing requires a successful, verified write to Supabase Database.
  */
 
-import { fetchCMSDataFromSupabase, saveCMSDataToSupabase } from './supabaseClient';
+import { fetchCMSDataFromSupabase, saveCMSDataToSupabase, isSupabaseConfigured } from './supabaseClient';
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
@@ -208,13 +208,16 @@ const defaultState = {
 let activeCMSState = null;
 
 function loadInitialState() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
+  // Allow localStorage persistence cache ONLY in local development mode
+  if (import.meta.env.DEV) {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (err) {
+      console.warn("CMS Store parse error", err);
     }
-  } catch (err) {
-    console.warn("CMS Store parse error", err);
   }
   return defaultState;
 }
@@ -236,9 +239,12 @@ export function updateInMemCMSState(cloudState) {
     sectionMedia: { ...defaultState.sectionMedia, ...(cloudState.sectionMedia || {}) },
   };
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
-  } catch (e) {}
+  // Only persist to localStorage in local development mode
+  if (import.meta.env.DEV) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
+    } catch (e) {}
+  }
 
   window.dispatchEvent(new Event('cms-state-updated'));
 }
@@ -252,25 +258,49 @@ export async function hydrateCMSFromCloud() {
   return getCMSState();
 }
 
-export function saveCMSState(newState) {
+/**
+ * Saves and verifies state to Supabase Cloud Database.
+ * In production, this requires a successful write + fresh SELECT verification.
+ */
+export async function saveCMSState(newState) {
   const updatedState = {
     ...newState,
     lastUpdated: new Date().toISOString()
   };
-  activeCMSState = updatedState;
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedState));
-  } catch (e) {}
+  // In production, enforce that Supabase environment configuration is present
+  if (!import.meta.env.DEV && !isSupabaseConfigured) {
+    throw new Error("SUPABASE CONNECTION REQUIRED: CMS publishing is unavailable because the production database connection is offline.");
+  }
+
+  if (isSupabaseConfigured) {
+    // 1. Await database write confirmation
+    const success = await saveCMSDataToSupabase(updatedState);
+    if (!success) {
+      throw new Error("Supabase Cloud Database write failed. Check connectivity, credentials or RLS policies.");
+    }
+
+    // 2. Perform a fresh verification SELECT
+    const verifiedData = await fetchCMSDataFromSupabase();
+    if (!verifiedData || verifiedData.lastUpdated !== updatedState.lastUpdated) {
+      throw new Error("Supabase fresh SELECT verification failed. Persisted record mismatch.");
+    }
+
+    activeCMSState = verifiedData;
+  } else {
+    // Local dev offline fallback
+    activeCMSState = updatedState;
+  }
+
+  // Local development persistence
+  if (import.meta.env.DEV) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
+    } catch (e) {}
+  }
 
   window.dispatchEvent(new Event('cms-state-updated'));
-
-  // Asynchronously push state to Supabase Cloud Database for cross-device persistence
-  saveCMSDataToSupabase(updatedState).catch(err => {
-    console.warn("Cloud persistence notice:", err);
-  });
-
-  return updatedState;
+  return activeCMSState;
 }
 
 /**
@@ -327,7 +357,7 @@ export function getHomepageBackground(isMobile = false) {
 /**
  * Set Homepage Background Configuration & Update History
  */
-export function setHomepageBackground(mode, desktopMediaId = '', mobileMediaId = '', fit = 'cover', focalX = 50, focalY = 50, overlay = 'none', opacity = 100) {
+export async function setHomepageBackground(mode, desktopMediaId = '', mobileMediaId = '', fit = 'cover', focalX = 50, focalY = 50, overlay = 'none', opacity = 100) {
   const state = getCMSState();
   const key = 'home:hero:backgroundVisual';
 
@@ -359,14 +389,14 @@ export function setHomepageBackground(mode, desktopMediaId = '', mobileMediaId =
     backgroundHistory: updatedHistory
   };
 
-  saveCMSState(newState);
+  await saveCMSState(newState);
   return newState;
 }
 
 /**
  * Assign Media to Section Slot
  */
-export function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mobileMediaId = '', fit = 'contain') {
+export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mobileMediaId = '', fit = 'contain') {
   const state = getCMSState();
   const key = `${pageId}:${sectionId}:${slotId}`;
 
@@ -378,14 +408,14 @@ export function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mob
     }
   };
 
-  saveCMSState(newState);
+  await saveCMSState(newState);
   return newState;
 }
 
 /**
  * Remove Media Assignment from Section Slot
  */
-export function removeMediaFromSlot(pageId, sectionId, slotId) {
+export async function removeMediaFromSlot(pageId, sectionId, slotId) {
   const state = getCMSState();
   const key = `${pageId}:${sectionId}:${slotId}`;
   const newSectionMedia = { ...state.sectionMedia };
@@ -396,7 +426,7 @@ export function removeMediaFromSlot(pageId, sectionId, slotId) {
     sectionMedia: newSectionMedia
   };
 
-  saveCMSState(newState);
+  await saveCMSState(newState);
   return newState;
 }
 

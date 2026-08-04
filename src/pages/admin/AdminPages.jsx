@@ -57,17 +57,26 @@ export default function AdminPages() {
     setState(newState);
   };
 
-  const handleSave = () => {
-    saveCMSState(state);
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+  const handleSave = async () => {
+    try {
+      await saveCMSState(state);
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+    } catch (err) {
+      console.error("Publish error:", err);
+      alert(err.message || "Publishing failed. Please check your Supabase connection.");
+    }
   };
 
-  const handleSetDefaultBg = () => {
-    setHomepageBackground('default', '', '', 'cover', 50, 50, 'none', 100);
-    setBgMode('default');
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+  const handleSetDefaultBg = async () => {
+    try {
+      await setHomepageBackground('default', '', '', 'cover', 50, 50, 'none', 100);
+      setBgMode('default');
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+    } catch (err) {
+      alert(err.message || "Failed to set default background.");
+    }
   };
 
   const handleDirectBgFileUpload = async (file) => {
@@ -83,10 +92,10 @@ export default function AdminPages() {
         ...currentState,
         mediaAssets: [asset, ...currentState.mediaAssets]
       };
-      saveCMSState(updatedState);
+      await saveCMSState(updatedState);
 
       // Activate as Hero Background (Home -> Hero -> Background)
-      setHomepageBackground('custom', asset.id, '', 'cover', focalX, focalY, bgOverlay, 100);
+      await setHomepageBackground('custom', asset.id, '', 'cover', focalX, focalY, bgOverlay, 100);
       setUploadingBg(false);
       setBgMode('custom');
       setSavedMsg(true);
@@ -94,24 +103,33 @@ export default function AdminPages() {
     } catch (err) {
       console.error("Direct Hero Background Upload Error:", err);
       setUploadingBg(false);
+      alert(err.message || "Upload failed. Verify Supabase Storage bucket RLS policies.");
     }
   };
 
-  const handleFocalChange = (newX, newY) => {
+  const handleFocalChange = async (newX, newY) => {
     setFocalX(newX);
     setFocalY(newY);
     if (bgConfig.mode === 'custom' && bgConfig.asset) {
-      setHomepageBackground('custom', bgConfig.asset.id, '', 'cover', newX, newY, bgOverlay, 100);
+      try {
+        await setHomepageBackground('custom', bgConfig.asset.id, '', 'cover', newX, newY, bgOverlay, 100);
+      } catch (err) {
+        console.warn("Focal update database error:", err);
+      }
     }
   };
 
-  const handleActivateHistoryBg = (hist) => {
+  const handleActivateHistoryBg = async (hist) => {
     if (hist.mode === 'default') {
-      handleSetDefaultBg();
+      await handleSetDefaultBg();
     } else if (hist.mediaId) {
-      setHomepageBackground('custom', hist.mediaId, '', 'cover', focalX, focalY, bgOverlay, 100);
-      setSavedMsg(true);
-      setTimeout(() => setSavedMsg(false), 2500);
+      try {
+        await setHomepageBackground('custom', hist.mediaId, '', 'cover', focalX, focalY, bgOverlay, 100);
+        setSavedMsg(true);
+        setTimeout(() => setSavedMsg(false), 2500);
+      } catch (err) {
+        alert(err.message || "Failed to activate selected background.");
+      }
     }
   };
 

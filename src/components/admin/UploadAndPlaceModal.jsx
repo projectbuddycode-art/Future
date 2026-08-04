@@ -125,28 +125,33 @@ export default function UploadAndPlaceModal({
     const targetAsset = fileMetadata || assetToAssign;
     let state = getCMSState();
 
-    // 1. Add asset to state if new
-    if (fileMetadata) {
-      state = {
-        ...state,
-        mediaAssets: [fileMetadata, ...state.mediaAssets]
-      };
-      saveCMSState(state);
-    }
+    try {
+      // 1. Add asset to state if new
+      if (fileMetadata) {
+        state = {
+          ...state,
+          mediaAssets: [fileMetadata, ...state.mediaAssets]
+        };
+        await saveCMSState(state);
+      }
 
-    // 2. Save placement in database/CMS store
-    if (mode === 'place') {
-      assignMediaToSlot(
-        selectedPage,
-        selectedSection,
-        selectedSlot,
-        deviceTarget === 'mobile' ? '' : targetAsset.id,
-        deviceTarget === 'mobile' ? targetAsset.id : '',
-        fitMode
-      );
-    }
+      // 2. Save placement in database/CMS store
+      if (mode === 'place') {
+        await assignMediaToSlot(
+          selectedPage,
+          selectedSection,
+          selectedSlot,
+          deviceTarget === 'mobile' ? '' : targetAsset.id,
+          deviceTarget === 'mobile' ? targetAsset.id : '',
+          fitMode
+        );
+      }
 
-    onClose();
+      onClose();
+    } catch (err) {
+      console.error("Upload placement error:", err);
+      alert(err.message || "Failed to publish placement to database.");
+    }
   };
 
   return (

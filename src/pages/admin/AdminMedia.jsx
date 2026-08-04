@@ -37,7 +37,7 @@ export default function AdminMedia() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDeleteAsset = (assetId) => {
+  const handleDeleteAsset = async (assetId) => {
     const placements = getAssetPlacements(assetId);
     if (placements.length > 0) {
       alert(`Cannot delete asset because it is currently assigned to ${placements.length} placement slot(s). Please unassign it first.`);
@@ -49,8 +49,13 @@ export default function AdminMedia() {
       ...state,
       mediaAssets: updatedAssets
     };
-    saveCMSState(newState);
-    setDeleteConfirmId(null);
+    try {
+      await saveCMSState(newState);
+      setDeleteConfirmId(null);
+    } catch (err) {
+      console.error("Delete asset error:", err);
+      alert(err.message || "Failed to delete asset from database.");
+    }
   };
 
   const handleOpenPlaceModal = (pageId = 'home', sectionId = 'hero', slotId = 'backgroundVisual', assetToAssign = null) => {

@@ -5,8 +5,15 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+// Centralized single Supabase client with persistent Auth session enabled
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    })
   : null;
 
 /**
@@ -45,7 +52,6 @@ export async function getSupabaseStatus() {
 
 /**
  * Fetch Full CMS State from Supabase Database
- * Allows Vercel visitors across all browsers and devices to load the latest published CMS content.
  */
 export async function fetchCMSDataFromSupabase() {
   if (!isSupabaseConfigured || !supabase) return null;
@@ -192,6 +198,36 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
   const storagePath = `${folderPath}/${safeFilename}`;
 
   if (isSupabaseConfigured && supabase) {
+    // Audit current session immediately before storage upload
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    console.log("STORAGE AUTH DEBUG", {
+      session: session ? "YES" : "NO",
+      user: user ? "YES" : "NO",
+      userId: user?.id || "NONE",
+      userEmail: user?.email || "NONE",
+      sessionError: sessionError?.message || "NONE",
+      userError: userError?.message || "NONE",
+      bucket: "website-media"
+    });
+
+    if (!session || !user) {
+      throw new Error("Supabase storage upload failed: Session is unauthenticated.");
+    }
+
+    // Verify Admin Database Record in public.admin_users using Auth UUID
+    const { data: adminRecord, error: adminError } = await supabase
+      .from('admin_users')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    if (adminError || !adminRecord) {
+      console.warn("CMS Admin Record Verification Failure:", adminError?.message);
+      throw new Error("Your authenticated account is not registered as a CMS administrator.");
+    }
+
     const { data, error } = await supabase.storage
       .from('website-media')
       .upload(storagePath, file, {

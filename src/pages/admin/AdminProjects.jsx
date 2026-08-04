@@ -11,11 +11,16 @@ export default function AdminProjects() {
   const [newDesc, setNewDesc] = useState('');
   const [savedMsg, setSavedMsg] = useState(false);
 
-  const handleSaveState = (newState) => {
-    saveCMSState(newState);
-    setState(newState);
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+  const handleSaveState = async (newState) => {
+    try {
+      await saveCMSState(newState);
+      setState(newState);
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+    } catch (err) {
+      console.error("Save projects error:", err);
+      alert(err.message || "Failed to save projects state.");
+    }
   };
 
   const handleAddProject = (e) => {

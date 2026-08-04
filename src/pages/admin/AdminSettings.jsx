@@ -28,7 +28,7 @@ export default function AdminSettings() {
     getSupabaseStatus().then(res => setSupabaseStatus(res));
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const newState = {
       ...state,
       siteSettings: {
@@ -40,10 +40,15 @@ export default function AdminSettings() {
         adminPassword,
       }
     };
-    saveCMSState(newState);
-    setState(newState);
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+    try {
+      await saveCMSState(newState);
+      setState(newState);
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+    } catch (err) {
+      console.error("Save settings error:", err);
+      alert(err.message || "Failed to save settings. Connection offline.");
+    }
   };
 
   const handleLogoFileUpload = async (file) => {

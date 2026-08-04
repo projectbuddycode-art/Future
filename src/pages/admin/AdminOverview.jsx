@@ -51,38 +51,53 @@ export default function AdminOverview() {
         </div>
 
         {/* Supabase Connection Status Card */}
-        <div className="p-4 rounded-2xl bg-slate-900 text-white shadow-xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs">
+        <div className={`p-4 rounded-2xl shadow-xl border flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs ${
+          (!import.meta.env.DEV && !isSupabaseConfigured)
+            ? 'bg-rose-950 text-rose-100 border-rose-800'
+            : 'bg-slate-900 text-white border-slate-800'
+        }`}>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[#0052FF]/20 text-[#0A84FF]">
+            <div className={`p-2.5 rounded-xl ${
+              (!import.meta.env.DEV && !isSupabaseConfigured)
+                ? 'bg-rose-500/20 text-rose-400'
+                : 'bg-[#0052FF]/20 text-[#0A84FF]'
+            }`}>
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <div className="font-bold text-white flex items-center gap-2">
+              <div className="font-bold flex items-center gap-2">
                 SUPABASE STORAGE & DATABASE INTEGRATION
                 {isSupabaseConfigured ? (
                   <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">CONNECTED ✓</span>
+                ) : !import.meta.env.DEV ? (
+                  <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded border border-rose-500/30">SUPABASE CONNECTION REQUIRED</span>
                 ) : (
-                  <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30">LOCAL FALLBACK ACTIVE</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30">LOCAL DEVELOPMENT FALLBACK</span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {supabaseStatus.message}
+              <p className={`text-[11px] mt-0.5 ${
+                (!import.meta.env.DEV && !isSupabaseConfigured) ? 'text-rose-300' : 'text-slate-400'
+              }`}>
+                {(!import.meta.env.DEV && !isSupabaseConfigured)
+                  ? "CMS publishing is unavailable because the production database connection is offline. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your Vercel Project Settings."
+                  : supabaseStatus.message
+                }
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px] text-slate-300">
+          <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Auth ✓</span>
+              <Lock className={`w-3.5 h-3.5 ${isSupabaseConfigured ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <span>Auth</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Storage ✓</span>
+              <HardDrive className={`w-3.5 h-3.5 ${isSupabaseConfigured ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <span>Storage</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Database ✓</span>
+              <Database className={`w-3.5 h-3.5 ${isSupabaseConfigured ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <span>Database</span>
             </div>
           </div>
         </div>

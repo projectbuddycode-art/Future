@@ -7,10 +7,15 @@ export default function AdminNavSeo() {
   const [state, setState] = useState(getCMSState());
   const [savedMsg, setSavedMsg] = useState(false);
 
-  const handleSave = () => {
-    saveCMSState(state);
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+  const handleSave = async () => {
+    try {
+      await saveCMSState(state);
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+    } catch (err) {
+      console.error("Save settings error:", err);
+      alert(err.message || "Failed to save settings. Connection offline.");
+    }
   };
 
   const handleSettingChange = (field, val) => {
