@@ -71,11 +71,12 @@ export async function fetchCMSDataFromSupabase() {
   }
 }
 
-/**
- * Persist Full CMS State to Supabase Database
- */
 export async function saveCMSDataToSupabase(state) {
   if (!isSupabaseConfigured || !supabase) return false;
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id || "NONE";
+  const authenticated = user ? "YES" : "NO";
 
   try {
     const { error } = await supabase
@@ -83,13 +84,33 @@ export async function saveCMSDataToSupabase(state) {
       .upsert({ id: 'main_cms_state', state, updated_at: new Date().toISOString() });
 
     if (error) {
-      console.warn("Supabase upsert warning:", error.message);
-      return false;
+      console.log(`CMS WRITE DEBUG
+table: site_cms_store
+operation: UPSERT
+authenticated: ${authenticated}
+user id: ${userId}
+error code: ${error.code || "NONE"}
+error message: ${error.message || "NONE"}
+error details: ${error.details || "NONE"}
+error hint: ${error.hint || "NONE"}`);
+
+      throw new Error(`Supabase write failed on table [site_cms_store] during [UPSERT]. Code: ${error.code || 'UNKNOWN'}. Message: ${error.message || 'No message'}. Details: ${error.details || 'None'}. Hint: ${error.hint || 'None'}`);
     }
+
+    console.log(`CMS WRITE DEBUG
+table: site_cms_store
+operation: UPSERT
+authenticated: ${authenticated}
+user id: ${userId}
+error code: NONE
+error message: NONE
+error details: NONE
+error hint: NONE`);
+
     return true;
   } catch (e) {
-    console.warn("Supabase save failed:", e);
-    return false;
+    console.error("Supabase save operation exception:", e);
+    throw e;
   }
 }
 
