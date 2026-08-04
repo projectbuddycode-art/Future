@@ -4,7 +4,7 @@ import { getCMSState, saveCMSState } from '../../services/cmsStore';
 import { getSupabaseStatus } from '../../services/supabaseClient';
 import { uploadDirectFileToSupabase } from '../../services/supabaseClient';
 import ProjectBuddyLogo from '../../components/ProjectBuddyLogo';
-import { Save, Check, Settings, Mail, Calendar, Linkedin, ShieldCheck, Database, Lock, Upload, Image as ImageIcon, Trash2, RefreshCw } from 'lucide-react';
+import { Save, Check, Settings, Mail, Calendar, Linkedin, ShieldCheck, Database, Lock, Upload, Image as ImageIcon, Trash2, HardDrive } from 'lucide-react';
 
 export default function AdminSettings() {
   const [state, setState] = useState(getCMSState());
@@ -19,8 +19,6 @@ export default function AdminSettings() {
   // Admin Auth credentials state
   const [adminEmail, setAdminEmail] = useState(state.siteSettings.adminEmail || "projectbuddy.code@gmail.com");
   const [adminPassword, setAdminPassword] = useState(state.siteSettings.adminPassword || "Optimusshiv0001@");
-  const [supabaseUrl, setSupabaseUrl] = useState(state.siteSettings.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || "");
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState(state.siteSettings.supabaseAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || "");
 
   // Uploading state
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -40,8 +38,6 @@ export default function AdminSettings() {
         logoUrl,
         adminEmail,
         adminPassword,
-        supabaseUrl,
-        supabaseAnonKey,
       }
     };
     saveCMSState(newState);
@@ -86,7 +82,7 @@ export default function AdminSettings() {
               GLOBAL SITE & BRAND IDENTITY CONTROL
             </span>
             <h1 className="text-2xl font-extrabold text-[#0B132B]">
-              Logo, Supabase Login & Site Settings
+              Logo, Credentials & Site Settings
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               Upload custom logo images, manage brand identity, edit admin login credentials, and configure discovery channels.
@@ -190,9 +186,9 @@ export default function AdminSettings() {
           </div>
         </div>
 
-        {/* Supabase Status Banner */}
-        <div className="p-5 rounded-2xl bg-slate-900 text-white shadow-xl border border-slate-800 space-y-3 font-mono text-xs">
-          <div className="flex items-center justify-between">
+        {/* READ-ONLY SUPABASE PRODUCTION CONNECTION STATUS CARD (NO MANUAL INPUTS REQUIRED) */}
+        <div className="p-6 rounded-2xl bg-slate-900 text-white shadow-xl border border-slate-800 space-y-4 font-mono text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2 font-bold text-base text-white">
               <Database className="w-5 h-5 text-[#0A84FF]" />
               <span>SUPABASE PRODUCTION CONNECTION</span>
@@ -201,16 +197,43 @@ export default function AdminSettings() {
               {supabaseStatus.connected ? 'CONNECTED ✓' : 'LOCAL FALLBACK ENGINE ACTIVE'}
             </span>
           </div>
-          <p className="text-xs text-slate-400 font-sans">
-            {supabaseStatus.message}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-slate-300 text-[11px]">
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <div>
+                <div className="font-bold text-white">Connection</div>
+                <div>{supabaseStatus.connected ? "Active ✓" : "Offline"}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+              <Database className="w-4 h-4 text-emerald-400" />
+              <div>
+                <div className="font-bold text-white">Database</div>
+                <div>{supabaseStatus.database ? "Ready ✓" : "Standby"}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
+              <HardDrive className="w-4 h-4 text-emerald-400" />
+              <div>
+                <div className="font-bold text-white">Storage Bucket</div>
+                <div>website-media ✓</div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+            Connection parameters are automatically provided via environment variables (<code className="text-[#0A84FF]">VITE_SUPABASE_URL</code> & <code className="text-[#0A84FF]">VITE_SUPABASE_ANON_KEY</code>). No manual credential entry is required in Admin.
           </p>
         </div>
 
-        {/* Admin Login Credentials & Supabase Keys Box */}
+        {/* Admin Login Credentials Box */}
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
           <h3 className="text-base font-extrabold text-[#0B132B] flex items-center gap-2">
             <Lock className="w-5 h-5 text-[#0052FF]" />
-            Admin Login Credentials & Supabase Keys
+            Administrator Login Credentials
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -241,36 +264,14 @@ export default function AdminSettings() {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 space-y-4">
-            <h4 className="text-xs font-mono font-bold text-slate-400 uppercase">
-              SUPABASE API CONFIGURATION
-            </h4>
-
-            <div>
-              <label className="block text-xs font-mono font-semibold text-slate-700 mb-1">
-                SUPABASE PROJECT URL (VITE_SUPABASE_URL)
-              </label>
-              <input
-                type="text"
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-                placeholder="https://your-project.supabase.co"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-mono text-[#0B132B] outline-none focus:border-[#0052FF]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-mono font-semibold text-slate-700 mb-1">
-                SUPABASE PUBLIC ANON KEY (VITE_SUPABASE_ANON_KEY)
-              </label>
-              <input
-                type="password"
-                value={supabaseAnonKey}
-                onChange={(e) => setSupabaseAnonKey(e.target.value)}
-                placeholder="eyJhbGciOiJIUzI1Ni..."
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-xs font-mono text-[#0B132B] outline-none focus:border-[#0052FF]"
-              />
-            </div>
+          <div className="pt-2 flex justify-end">
+            <button
+              onClick={handleSave}
+              className="px-6 py-3 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] shadow-md transition-all flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              <span>Update Credentials</span>
+            </button>
           </div>
         </div>
 
