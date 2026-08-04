@@ -1,7 +1,10 @@
 /**
- * Project Buddy CMS Store Service v2.1
- * Controls published/draft state, site settings, projects, section media assignments, and Homepage Background control.
+ * Project Buddy CMS Store Service v2.5 — Cloud Persistent Engine
+ * Ensures published CMS state is saved to & fetched from Supabase Database,
+ * allowing Vercel visitors across ALL devices, tabs, and incognito windows to see live updates.
  */
+
+import { fetchCMSDataFromSupabase, saveCMSDataToSupabase } from './supabaseClient';
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
@@ -201,16 +204,52 @@ const defaultState = {
   lastUpdated: new Date().toISOString(),
 };
 
-export function getCMSState() {
+// In-memory runtime cache for zero-latency UI re-renders
+let activeCMSState = null;
+
+function loadInitialState() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       return JSON.parse(stored);
     }
   } catch (err) {
-    console.warn("CMS Store parse error, falling back to defaultState", err);
+    console.warn("CMS Store parse error", err);
   }
   return defaultState;
+}
+
+export function getCMSState() {
+  if (!activeCMSState) {
+    activeCMSState = loadInitialState();
+  }
+  return activeCMSState;
+}
+
+export function updateInMemCMSState(cloudState) {
+  if (!cloudState) return;
+  activeCMSState = {
+    ...defaultState,
+    ...cloudState,
+    siteSettings: { ...defaultState.siteSettings, ...(cloudState.siteSettings || {}) },
+    pages: { ...defaultState.pages, ...(cloudState.pages || {}) },
+    sectionMedia: { ...defaultState.sectionMedia, ...(cloudState.sectionMedia || {}) },
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
+  } catch (e) {}
+
+  window.dispatchEvent(new Event('cms-state-updated'));
+}
+
+export async function hydrateCMSFromCloud() {
+  const cloudData = await fetchCMSDataFromSupabase();
+  if (cloudData) {
+    updateInMemCMSState(cloudData);
+    return cloudData;
+  }
+  return getCMSState();
 }
 
 export function saveCMSState(newState) {
@@ -218,8 +257,19 @@ export function saveCMSState(newState) {
     ...newState,
     lastUpdated: new Date().toISOString()
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedState));
+  activeCMSState = updatedState;
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedState));
+  } catch (e) {}
+
   window.dispatchEvent(new Event('cms-state-updated'));
+
+  // Asynchronously push state to Supabase Cloud Database for cross-device persistence
+  saveCMSDataToSupabase(updatedState).catch(err => {
+    console.warn("Cloud persistence notice:", err);
+  });
+
   return updatedState;
 }
 
@@ -286,7 +336,6 @@ export function setHomepageBackground(mode, desktopMediaId = '', mobileMediaId =
     active: mode === 'default' ? h.mode === 'default' : h.mediaId === desktopMediaId
   }));
 
-  // Add to history if not exists
   if (mode !== 'default' && desktopMediaId && !updatedHistory.some(h => h.mediaId === desktopMediaId)) {
     const asset = state.mediaAssets.find(m => m.id === desktopMediaId);
     if (asset) {

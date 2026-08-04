@@ -19,12 +19,12 @@ export async function getSupabaseStatus() {
       auth: false,
       storage: false,
       database: false,
-      message: "VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not configured. Using local fallback engine."
+      message: "VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not configured in Vercel env. Using local engine fallback."
     };
   }
 
   try {
-    const { data, error } = await supabase.from('media_assets').select('id').limit(1);
+    const { data, error } = await supabase.from('site_cms_store').select('id').limit(1);
     return {
       connected: !error,
       auth: true,
@@ -40,6 +40,50 @@ export async function getSupabaseStatus() {
       database: false,
       message: err.message
     };
+  }
+}
+
+/**
+ * Fetch Full CMS State from Supabase Database
+ * Allows Vercel visitors across all browsers and devices to load the latest published CMS content.
+ */
+export async function fetchCMSDataFromSupabase() {
+  if (!isSupabaseConfigured || !supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('site_cms_store')
+      .select('state')
+      .eq('id', 'main_cms_state')
+      .single();
+
+    if (error || !data) return null;
+    return data.state;
+  } catch (e) {
+    console.warn("Supabase fetch failed, using cached state:", e);
+    return null;
+  }
+}
+
+/**
+ * Persist Full CMS State to Supabase Database
+ */
+export async function saveCMSDataToSupabase(state) {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('site_cms_store')
+      .upsert({ id: 'main_cms_state', state, updated_at: new Date().toISOString() });
+
+    if (error) {
+      console.warn("Supabase upsert warning:", error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn("Supabase save failed:", e);
+    return false;
   }
 }
 
@@ -133,17 +177,14 @@ export function extractVideoMetadata(file) {
 
 /**
  * Direct File Upload to Supabase Storage Bucket 'website-media'
- * Falls back to DataURL/Blob storage if Supabase credentials are missing
  */
 export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
   const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|webm|mov)$/i);
   
-  // 1. Extract metadata
   const meta = isVideo
     ? await extractVideoMetadata(file)
     : await extractImageMetadata(file);
 
-  // Simulate progress steps
   if (onProgress) onProgress(25, "Uploading to storage...");
 
   let publicUrl = "";
@@ -151,7 +192,6 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
   const storagePath = `${folderPath}/${safeFilename}`;
 
   if (isSupabaseConfigured && supabase) {
-    // Supabase Upload
     const { data, error } = await supabase.storage
       .from('website-media')
       .upload(storagePath, file, {
@@ -172,7 +212,6 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
 
     publicUrl = publicData.publicUrl;
   } else {
-    // Fallback DataURL generator for local offline preview/testing
     if (onProgress) onProgress(65, "Generating local asset payload...");
     
     publicUrl = await new Promise((resolve) => {
