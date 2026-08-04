@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Router, Route, Switch, useLocation } from 'wouter';
-import SplashCursor from './components/SplashCursor';
+import HomepageBackground from './components/HomepageBackground';
 import Navigation from './components/Navigation';
 import Footer from './components/Footer';
 import { AuthProvider } from './context/AuthContext';
@@ -45,21 +45,8 @@ export default function App() {
           {/* Public-only Backgrounds & Navigation */}
           {!isAdminRoute && (
             <>
-              {/* LAYER 0: Persistent Animated WebGL SplashCursor Background */}
-              <SplashCursor
-                SIM_RESOLUTION={128}
-                DYE_RESOLUTION={1440}
-                DENSITY_DISSIPATION={3.5}
-                VELOCITY_DISSIPATION={2}
-                PRESSURE={0.1}
-                CURL={3}
-                SPLAT_RADIUS={0.2}
-                SPLAT_FORCE={6000}
-                COLOR_UPDATE_SPEED={10}
-              />
-
-              {/* LAYER 1: Ambient Radial White/Pale-Blue Readability Overlay */}
-              <div className="fixed inset-0 pointer-events-none z-1 bg-radial-wash opacity-80" />
+              {/* LAYER 0: Environmental Homepage Background (Default WebGL SplashCursor vs Custom Video/Image) */}
+              <HomepageBackground />
 
               {/* LAYER 5: Public Navigation */}
               <Navigation />

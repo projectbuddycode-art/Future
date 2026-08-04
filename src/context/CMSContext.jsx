@@ -3,6 +3,7 @@ import { getCMSState } from '../services/cmsStore';
 import {
   getPublishedPageContent,
   getPublishedSectionMedia,
+  getPublishedHomepageBackground,
   getPublishedSiteSettings,
   getPublishedProjects
 } from '../services/cmsClient';
@@ -30,11 +31,12 @@ export function CMSProvider({ children }) {
   const getPage = (pageId, fallback = {}) => getPublishedPageContent(pageId, fallback);
   const getMedia = (pageId, sectionId, slotId, isMobile = false, fallback = null) =>
     getPublishedSectionMedia(pageId, sectionId, slotId, isMobile, fallback);
+  const getHomepageBg = (isMobile = false) => getPublishedHomepageBackground(isMobile);
   const getSettings = (fallback = {}) => getPublishedSiteSettings(fallback);
   const getProjects = (fallback = []) => getPublishedProjects(fallback);
 
   return (
-    <CMSContext.Provider value={{ cmsState, getPage, getMedia, getSettings, getProjects }}>
+    <CMSContext.Provider value={{ cmsState, getPage, getMedia, getHomepageBg, getSettings, getProjects }}>
       {children}
     </CMSContext.Provider>
   );

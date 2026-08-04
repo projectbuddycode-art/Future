@@ -222,6 +222,7 @@ export default function AdminSettings() {
                 type="email"
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
+                placeholder="admin@projectbuddy.co.in"
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-xs text-[#0B132B] outline-none focus:border-[#0052FF]"
               />
             </div>
@@ -231,9 +232,10 @@ export default function AdminSettings() {
                 ADMINISTRATOR PASSWORD
               </label>
               <input
-                type="text"
+                type="password"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="••••••••••••"
                 className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-xs text-[#0B132B] outline-none focus:border-[#0052FF]"
               />
             </div>

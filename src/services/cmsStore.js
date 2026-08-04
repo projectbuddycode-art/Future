@@ -1,11 +1,10 @@
 /**
- * Project Buddy CMS Store Service v2.0
- * Controls published/draft state, site settings, projects, section media assignments, and media library.
+ * Project Buddy CMS Store Service v2.1
+ * Controls published/draft state, site settings, projects, section media assignments, and Homepage Background control.
  */
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
-// Initial default seed state matching approved Project Buddy architecture
 const defaultState = {
   siteSettings: {
     companyName: "Project Buddy",
@@ -65,14 +64,17 @@ const defaultState = {
       heroDescription: "Project Buddy is committed to maintaining strict data privacy, enterprise confidentiality, and zero-trust security.",
     }
   },
-  // Section Media Assignment Relationship: Page -> Section -> Slot -> Media ID
   sectionMedia: {
-    'home:workingSystem:mainVisual': { desktopMediaId: 'media_hero_01', mobileMediaId: '', fit: 'contain' },
-    'home:selectedSystems:diamondCaptureVisual': { desktopMediaId: 'media_diamond_01', mobileMediaId: '', fit: 'contain' },
-    'home:selectedSystems:instituteOSVisual': { desktopMediaId: 'media_institute_01', mobileMediaId: '', fit: 'contain' },
-    'home:selectedSystems:aiReceptionistVisual': { desktopMediaId: 'media_ai_reception_01', mobileMediaId: '', fit: 'contain' },
-    'home:selectedSystems:atlasVisual': { desktopMediaId: 'media_atlas_01', mobileMediaId: '', fit: 'contain' },
+    'home:hero:backgroundVisual': { mode: 'default', desktopMediaId: '', mobileMediaId: '', fit: 'cover', focalX: 50, focalY: 50, overlay: 'none', opacity: 100 },
+    'home:workingSystem:mainVisual': { mode: 'custom', desktopMediaId: 'media_hero_01', mobileMediaId: '', fit: 'contain' },
+    'home:selectedSystems:diamondCaptureVisual': { mode: 'custom', desktopMediaId: 'media_diamond_01', mobileMediaId: '', fit: 'contain' },
+    'home:selectedSystems:instituteOSVisual': { mode: 'custom', desktopMediaId: 'media_institute_01', mobileMediaId: '', fit: 'contain' },
+    'home:selectedSystems:aiReceptionistVisual': { mode: 'custom', desktopMediaId: 'media_ai_reception_01', mobileMediaId: '', fit: 'contain' },
+    'home:selectedSystems:atlasVisual': { mode: 'custom', desktopMediaId: 'media_atlas_01', mobileMediaId: '', fit: 'contain' },
   },
+  backgroundHistory: [
+    { id: 'default', name: 'Default Original WebGL SplashCursor Background', mode: 'default', active: true }
+  ],
   projects: [
     {
       id: "diamond-capture",
@@ -199,7 +201,6 @@ const defaultState = {
   lastUpdated: new Date().toISOString(),
 };
 
-// Initialize Store
 export function getCMSState() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -240,7 +241,77 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   return {
     ...asset,
     fit: assignment.fit || asset.fit || 'contain',
+    focalPoint: { x: assignment.focalX ?? 50, y: assignment.focalY ?? 50 },
   };
+}
+
+/**
+ * Resolve Homepage Background Data
+ */
+export function getHomepageBackground(isMobile = false) {
+  const state = getCMSState();
+  const assignment = state.sectionMedia?.['home:hero:backgroundVisual'];
+
+  if (!assignment || assignment.mode === 'default' || !assignment.desktopMediaId) {
+    return { mode: 'default' };
+  }
+
+  const targetMediaId = (isMobile && assignment.mobileMediaId) ? assignment.mobileMediaId : assignment.desktopMediaId;
+  const asset = state.mediaAssets.find(m => m.id === targetMediaId);
+
+  if (!asset) {
+    return { mode: 'default' };
+  }
+
+  return {
+    mode: 'custom',
+    asset,
+    fit: assignment.fit || 'cover',
+    focalX: assignment.focalX ?? 50,
+    focalY: assignment.focalY ?? 50,
+    overlay: assignment.overlay || 'none',
+    opacity: assignment.opacity ?? 100,
+  };
+}
+
+/**
+ * Set Homepage Background Configuration & Update History
+ */
+export function setHomepageBackground(mode, desktopMediaId = '', mobileMediaId = '', fit = 'cover', focalX = 50, focalY = 50, overlay = 'none', opacity = 100) {
+  const state = getCMSState();
+  const key = 'home:hero:backgroundVisual';
+
+  const updatedHistory = (state.backgroundHistory || []).map(h => ({
+    ...h,
+    active: mode === 'default' ? h.mode === 'default' : h.mediaId === desktopMediaId
+  }));
+
+  // Add to history if not exists
+  if (mode !== 'default' && desktopMediaId && !updatedHistory.some(h => h.mediaId === desktopMediaId)) {
+    const asset = state.mediaAssets.find(m => m.id === desktopMediaId);
+    if (asset) {
+      updatedHistory.unshift({
+        id: `bg_${Date.now()}`,
+        name: asset.name,
+        mediaId: desktopMediaId,
+        type: asset.type,
+        mode: 'custom',
+        active: true
+      });
+    }
+  }
+
+  const newState = {
+    ...state,
+    sectionMedia: {
+      ...state.sectionMedia,
+      [key]: { mode, desktopMediaId, mobileMediaId, fit, focalX, focalY, overlay, opacity }
+    },
+    backgroundHistory: updatedHistory
+  };
+
+  saveCMSState(newState);
+  return newState;
 }
 
 /**
@@ -254,7 +325,7 @@ export function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mob
     ...state,
     sectionMedia: {
       ...state.sectionMedia,
-      [key]: { desktopMediaId, mobileMediaId, fit }
+      [key]: { mode: 'custom', desktopMediaId, mobileMediaId, fit }
     }
   };
 

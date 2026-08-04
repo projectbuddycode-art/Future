@@ -1,6 +1,6 @@
 /**
  * Centralized Section Media Registry for Project Buddy
- * Defines all pages, media-capable sections, and supported slots.
+ * Defines all pages, media-capable sections, and supported slots including Homepage Hero Background.
  */
 
 export const MEDIA_REGISTRY = {
@@ -10,8 +10,8 @@ export const MEDIA_REGISTRY = {
       hero: {
         name: "Hero Section",
         slots: {
+          backgroundVisual: { name: "Homepage Background", defaultFit: "cover" },
           heroVisual: { name: "Main Hero Visual", defaultFit: "contain" },
-          backgroundVisual: { name: "Atmospheric Background", defaultFit: "cover" },
           mobileVisual: { name: "Mobile Hero Visual", defaultFit: "contain" },
         }
       },
@@ -161,9 +161,6 @@ export const MEDIA_REGISTRY = {
   }
 };
 
-/**
- * Utility to get array of all pages
- */
 export function getRegisteredPages() {
   return Object.keys(MEDIA_REGISTRY).map(pageId => ({
     id: pageId,
@@ -171,9 +168,6 @@ export function getRegisteredPages() {
   }));
 }
 
-/**
- * Utility to get sections for a specific page
- */
 export function getRegisteredSections(pageId) {
   if (!MEDIA_REGISTRY[pageId]) return [];
   return Object.keys(MEDIA_REGISTRY[pageId].sections).map(sectionId => ({
@@ -182,9 +176,6 @@ export function getRegisteredSections(pageId) {
   }));
 }
 
-/**
- * Utility to get slots for a specific section
- */
 export function getRegisteredSlots(pageId, sectionId) {
   if (!MEDIA_REGISTRY[pageId] || !MEDIA_REGISTRY[pageId].sections[sectionId]) return [];
   const slotsObj = MEDIA_REGISTRY[pageId].sections[sectionId].slots;
@@ -195,9 +186,6 @@ export function getRegisteredSlots(pageId, sectionId) {
   }));
 }
 
-/**
- * Get human readable placement label
- */
 export function getPlacementLabel(pageId, sectionId, slotId) {
   const pageName = MEDIA_REGISTRY[pageId]?.name || pageId;
   const sectionName = MEDIA_REGISTRY[pageId]?.sections[sectionId]?.name || sectionId;

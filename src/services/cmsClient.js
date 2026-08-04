@@ -3,7 +3,7 @@
  * Ensures published CMS records ALWAYS take precedence over local coded fallbacks.
  */
 
-import { getCMSState, getSectionMedia } from './cmsStore';
+import { getCMSState, getSectionMedia, getHomepageBackground } from './cmsStore';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 /**
@@ -31,6 +31,13 @@ export function getPublishedSectionMedia(pageId, sectionId, slotId, isMobile = f
   }
 
   return fallbackMedia;
+}
+
+/**
+ * Fetch Published Homepage Background Assignment
+ */
+export function getPublishedHomepageBackground(isMobile = false) {
+  return getHomepageBackground(isMobile);
 }
 
 /**
