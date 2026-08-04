@@ -16,7 +16,7 @@ export default function AdminPages() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTarget, setModalTarget] = useState({ pageId: 'home', sectionId: 'hero', slotId: 'backgroundVisual' });
 
-  // Homepage Background Specific State
+  // Hero Background Specific State
   const [bgConfig, setBgConfig] = useState(getHomepageBackground(false));
   const [bgMode, setBgMode] = useState(bgConfig.mode || 'default');
   const [focalX, setFocalX] = useState(bgConfig.focalX ?? 50);
@@ -75,7 +75,7 @@ export default function AdminPages() {
     setUploadingBg(true);
 
     try {
-      const asset = await uploadDirectFileToSupabase(file, 'home/background');
+      const asset = await uploadDirectFileToSupabase(file, 'home/hero-bg');
       
       // Save to CMS state assets
       const currentState = getCMSState();
@@ -85,14 +85,14 @@ export default function AdminPages() {
       };
       saveCMSState(updatedState);
 
-      // Activate as Homepage Background
+      // Activate as Hero Background (Home -> Hero -> Background)
       setHomepageBackground('custom', asset.id, '', 'cover', focalX, focalY, bgOverlay, 100);
       setUploadingBg(false);
       setBgMode('custom');
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2500);
     } catch (err) {
-      console.error("Direct Background Upload Error:", err);
+      console.error("Direct Hero Background Upload Error:", err);
       setUploadingBg(false);
     }
   };
@@ -123,13 +123,13 @@ export default function AdminPages() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
           <div>
             <span className="text-xs font-mono font-bold text-[#0052FF] uppercase tracking-wider">
-              SECTION STRUCTURED EDITOR & HOMEPAGE BACKGROUND CONTROL
+              SECTION STRUCTURED EDITOR & HERO BACKGROUND CONTROL
             </span>
             <h1 className="text-2xl font-extrabold text-[#0B132B]">
               Website Pages & Visual Assets
             </h1>
             <p className="text-xs text-slate-500 mt-1">
-              Manage copy, section visuals, and the environmental Homepage Hero Background.
+              Manage copy, section visuals, and the environmental Hero Background.
             </p>
           </div>
 
@@ -159,34 +159,34 @@ export default function AdminPages() {
           ))}
         </div>
 
-        {/* HOMEPAGE SPECIFIC BACKGROUND CONTROL PANEL */}
+        {/* HOMEPAGE SPECIFIC HERO BACKGROUND CONTROL PANEL */}
         {activePage === 'home' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-md space-y-6">
             
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
                 <span className="text-xs font-mono font-bold text-[#0052FF] uppercase">
-                  HOME → HERO → HOMEPAGE BACKGROUND
+                  HOME → HERO → HERO BACKGROUND
                 </span>
                 <h2 className="text-xl font-extrabold text-[#0B132B]">
-                  Homepage Environmental Background Control
+                  Hero Background Control (Scoped to Hero Section)
                 </h2>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold ${bgMode === 'default' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-purple-100 text-purple-800 border border-purple-200'}`}>
-                  STATUS: {bgMode === 'default' ? 'DEFAULT ORIGINAL ANIMATION' : 'CUSTOM BACKGROUND'}
+                  STATUS: {bgMode === 'default' ? 'DEFAULT HERO ANIMATION' : 'CUSTOM HERO BACKGROUND'}
                 </span>
               </div>
             </div>
 
-            {/* Current Active Background Box & Controls */}
+            {/* Current Active Hero Background Controls */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
               {/* Left Column: Background Controls */}
               <div className="space-y-4">
                 <div className="font-mono text-xs font-bold text-slate-700 uppercase">
-                  BACKGROUND SOURCE SELECTOR
+                  HERO BACKGROUND SOURCE
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -200,10 +200,10 @@ export default function AdminPages() {
                   >
                     <div className="flex items-center gap-2 text-xs font-bold text-[#0B132B]">
                       <Sparkles className="w-4 h-4 text-[#0052FF]" />
-                      Use Default WebGL Background
+                      Use Default Hero Background
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Original WebGL SplashCursor + ambient grid & glow (Permanent Fallback).
+                      Original WebGL SplashCursor + tech grid fallback.
                     </p>
                   </button>
 
@@ -214,7 +214,7 @@ export default function AdminPages() {
                   >
                     <div className="flex items-center gap-2 text-xs font-bold text-[#0B132B] group-hover:text-[#0052FF]">
                       <Upload className="w-4 h-4 text-[#0052FF]" />
-                      Upload Video or Image
+                      Upload Hero Video or Image
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1">
                       Direct MP4, WebM, PNG, JPG file upload to Supabase.
@@ -230,13 +230,13 @@ export default function AdminPages() {
                   className="hidden"
                 />
 
-                {/* Focal Point Sliders (For Cover Fit Alignment) */}
+                {/* Focal Point Sliders */}
                 {bgMode === 'custom' && (
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 text-xs">
                     <div className="font-mono font-bold text-slate-700 flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <Sliders className="w-4 h-4 text-[#0052FF]" />
-                        BACKGROUND FOCAL POINT (COVER FIT)
+                        HERO FOCAL POINT (COVER FIT)
                       </span>
                       <span className="text-slate-500 font-normal">X: {focalX}% | Y: {focalY}%</span>
                     </div>
@@ -267,10 +267,10 @@ export default function AdminPages() {
                   </div>
                 )}
 
-                {/* Recent Background History */}
+                {/* Recent Hero Background History */}
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
                   <div className="font-mono text-xs font-bold text-slate-700 uppercase flex items-center justify-between">
-                    <span>BACKGROUND HISTORY</span>
+                    <span>HERO BACKGROUND HISTORY</span>
                     <span className="text-[10px] text-slate-400 font-normal">Quick Switch</span>
                   </div>
 
@@ -299,11 +299,11 @@ export default function AdminPages() {
 
               </div>
 
-              {/* Right Column: Real Hero Responsive Live Preview */}
+              {/* Right Column: Hero Section Responsive Live Preview */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-bold text-slate-700 uppercase">
-                    REAL HOMEPAGE HERO PREVIEW
+                    HERO SECTION PREVIEW (SCOPED TO HERO ONLY)
                   </span>
 
                   <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
@@ -332,7 +332,7 @@ export default function AdminPages() {
                 <div className="bg-slate-900 rounded-2xl p-4 overflow-hidden border border-slate-800 min-h-[340px] flex items-center justify-center">
                   <div style={{ width: `${previewViewport}px`, maxWidth: '100%' }} className="mx-auto text-center space-y-4 text-white relative p-6 rounded-xl overflow-hidden bg-slate-950">
                     
-                    {/* Background Layer Preview */}
+                    {/* Hero Background Layer Preview */}
                     {bgMode === 'custom' && bgConfig.asset ? (
                       <div className="absolute inset-0 z-0">
                         {bgConfig.asset.type === 'video' ? (

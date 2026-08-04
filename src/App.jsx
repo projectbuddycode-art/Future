@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { Router, Route, Switch, useLocation } from 'wouter';
-import HomepageBackground from './components/HomepageBackground';
 import Navigation from './components/Navigation';
 import Footer from './components/Footer';
 import { AuthProvider } from './context/AuthContext';
@@ -40,18 +39,10 @@ export default function App() {
   return (
     <AuthProvider>
       <CMSProvider>
-        <div className="relative min-h-screen flex flex-col justify-between selection:bg-[#0052FF]/10 selection:text-[#0052FF]">
+        <div className="relative min-h-screen flex flex-col justify-between bg-[#FAF9F6] selection:bg-[#0052FF]/10 selection:text-[#0052FF]">
           
-          {/* Public-only Backgrounds & Navigation */}
-          {!isAdminRoute && (
-            <>
-              {/* LAYER 0: Environmental Homepage Background (Default WebGL SplashCursor vs Custom Video/Image) */}
-              <HomepageBackground />
-
-              {/* LAYER 5: Public Navigation */}
-              <Navigation />
-            </>
-          )}
+          {/* Public Navigation */}
+          {!isAdminRoute && <Navigation />}
 
           {/* Scroll Restorer */}
           <ScrollToTop />

@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { ArrowRight, ShieldCheck, Layers, Terminal, Sparkles, Calendar, Mail, Linkedin, Cpu, Database, Server, Code } from 'lucide-react';
 import { useCMS } from '../context/CMSContext';
+import HeroBackground from '../components/HeroBackground';
 import DisconnectedToSystem from '../components/DisconnectedToSystem';
 import CapabilitiesShowcase from '../components/CapabilitiesShowcase';
 import SystemsShowcase from '../components/SystemsShowcase';
@@ -44,18 +45,18 @@ export default function Home() {
   return (
     <div className="relative z-10">
       
-      {/* HOMEPAGE HERO */}
-      <section className="relative pt-32 pb-16 md:pt-40 md:pb-24 overflow-hidden">
+      {/* HOMEPAGE HERO SECTION (STRICT HERO BOUNDARY) */}
+      <section className="relative hero pt-32 pb-16 md:pt-40 md:pb-24 overflow-hidden">
         
-        {/* Ambient Grid & Glow Background */}
-        <div className="absolute inset-0 bg-tech-grid pointer-events-none opacity-60" />
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[800px] h-[380px] bg-gradient-to-tr from-[#0052FF]/12 via-[#3B82F6]/6 to-transparent rounded-full blur-3xl pointer-events-none" />
+        {/* Hero Background (Default WebGL / Custom Video — Terminated at Hero Boundary) */}
+        <HeroBackground />
 
+        {/* Hero Content Layer */}
         <div className="container-editorial px-4 sm:px-6 relative z-20 text-center">
           
           <div className="space-y-6 max-w-3xl mx-auto">
             
-            {/* Technical Eyebrow Tag with DecryptedText 5s Loop */}
+            {/* Technical Eyebrow Tag */}
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -161,13 +162,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* TECH STACK LOGO LOOP MARQUEE WITH SCROLL ANIMATION */}
+      {/* TECH STACK LOGO LOOP MARQUEE */}
       <motion.section
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, margin: "-50px" }}
         variants={sectionVariant}
-        className="py-6 border-y border-slate-200/60 bg-white/80 backdrop-blur-md"
+        className="relative z-10 py-6 border-y border-slate-200/60 bg-white/80 backdrop-blur-md"
       >
         <div className="container-visual px-4 sm:px-6">
           <div className="flex items-center justify-center gap-2 mb-2">
