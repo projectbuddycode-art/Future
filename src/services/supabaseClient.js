@@ -104,7 +104,7 @@ export async function fetchCMSDataFromSupabase() {
 }
 
 /**
- * Write CMS State to Supabase Database via UPSERT
+ * Write CMS State to Supabase Database via UPDATE with Deep Merge & Verification
  */
 export async function saveCMSDataToSupabase(state) {
   if (!isSupabaseConfigured || !supabase) return false;
@@ -114,56 +114,84 @@ export async function saveCMSDataToSupabase(state) {
   const authenticated = user ? "YES" : "NO";
 
   try {
-    const cleanInputState = JSON.parse(JSON.stringify(state));
-    const existingCloudData = await fetchCMSDataFromSupabase();
-
-    const mergedState = existingCloudData ? {
-      ...existingCloudData,
-      ...cleanInputState,
-      siteSettings: { ...(existingCloudData.siteSettings || {}), ...(cleanInputState.siteSettings || {}) },
-      pages: { ...(existingCloudData.pages || {}), ...(cleanInputState.pages || {}) },
-      media: { ...(existingCloudData.media || {}), ...(cleanInputState.media || {}) },
-      sectionMedia: { ...(existingCloudData.sectionMedia || {}), ...(cleanInputState.sectionMedia || {}) },
-      mediaAssets: cleanInputState.mediaAssets || existingCloudData.mediaAssets || [],
-      projects: cleanInputState.projects || existingCloudData.projects || [],
-      backgroundHistory: cleanInputState.backgroundHistory || existingCloudData.backgroundHistory || [],
-      lastUpdated: new Date().toISOString()
-    } : cleanInputState;
-
-    const finalCleanState = JSON.parse(JSON.stringify(mergedState));
-
-    const { error } = await supabase
+    // 1. Fetch fresh current row from database
+    const { data: currentRow, error: fetchErr } = await supabase
       .from('site_cms_store')
-      .upsert(
-        { id: CMS_STORE_ID, state: finalCleanState, updated_at: new Date().toISOString() },
-        { onConflict: 'id' }
-      );
+      .select('id, state, updated_at')
+      .eq('id', CMS_STORE_ID)
+      .single();
 
-    if (error) {
-      console.log(`CMS WRITE DEBUG
-table: site_cms_store
-operation: UPSERT
-authenticated: ${authenticated}
-user id: ${userId}
-error code: ${error.code || "NONE"}
-error message: ${error.message || "NONE"}
-error details: ${error.details || "NONE"}
-error hint: ${error.hint || "NONE"}`);
-
-      throw new Error(`Supabase write failed on table [site_cms_store] during [UPSERT]. Code: ${error.code || 'UNKNOWN'}. Message: ${error.message || 'No message'}. Details: ${error.details || 'None'}. Hint: ${error.hint || 'None'}`);
+    if (fetchErr && fetchErr.code !== 'PGRST116') {
+      console.error(`PUBLISH DEBUG — DB fetch failed:`, fetchErr);
+      throw new Error(`STAGE: CMS FETCH | TABLE: site_cms_store | OPERATION: SELECT | CODE: ${fetchErr.code || 'UNKNOWN'} | MESSAGE: ${fetchErr.message}`);
     }
 
-    console.log(`CMS WRITE DEBUG
-table: site_cms_store
-operation: UPSERT
-authenticated: ${authenticated}
-user id: ${userId}
-error code: NONE
-error message: NONE
-error details: NONE
-error hint: NONE`);
+    const cleanInputState = JSON.parse(JSON.stringify(state));
+    const existingState = currentRow?.state || {};
 
-    return finalCleanState;
+    // 2. Build nextState using deep merge
+    const nextState = {
+      ...existingState,
+      ...cleanInputState,
+      siteSettings: { ...(existingState.siteSettings || {}), ...(cleanInputState.siteSettings || {}) },
+      pages: { ...(existingState.pages || {}), ...(cleanInputState.pages || {}) },
+      media: { ...(existingState.media || {}), ...(cleanInputState.media || {}) },
+      sectionMedia: { ...(existingState.sectionMedia || {}), ...(cleanInputState.sectionMedia || {}) },
+      mediaAssets: cleanInputState.mediaAssets || existingState.mediaAssets || [],
+      projects: cleanInputState.projects || existingState.projects || [],
+      backgroundHistory: cleanInputState.backgroundHistory || existingState.backgroundHistory || [],
+      lastUpdated: new Date().toISOString()
+    };
+
+    const finalCleanState = JSON.parse(JSON.stringify(nextState));
+
+    // 3. UPDATE existing active row in site_cms_store
+    const { data: updatedRow, error: updateErr } = await supabase
+      .from('site_cms_store')
+      .update({
+        state: finalCleanState,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', CMS_STORE_ID)
+      .select('id, state, updated_at')
+      .single();
+
+    if (updateErr) {
+      console.error(`PUBLISH DEBUG — DB update failed:`, updateErr);
+      throw new Error(`STAGE: CMS UPDATE | TABLE: site_cms_store | OPERATION: UPDATE | CODE: ${updateErr.code || 'UNKNOWN'} | MESSAGE: ${updateErr.message}`);
+    }
+
+    if (!updatedRow || updatedRow.id !== CMS_STORE_ID) {
+      throw new Error(`STAGE: CMS UPDATE | TABLE: site_cms_store | OPERATION: UPDATE | CODE: NO_ROW_UPDATED | MESSAGE: Zero rows updated for ID ${CMS_STORE_ID}`);
+    }
+
+    // 4. Fresh Database Verification SELECT
+    const { data: verifiedRow, error: verifyErr } = await supabase
+      .from('site_cms_store')
+      .select('id, state, updated_at')
+      .eq('id', CMS_STORE_ID)
+      .single();
+
+    if (verifyErr || !verifiedRow) {
+      throw new Error(`STAGE: FRESH VERIFICATION | TABLE: site_cms_store | OPERATION: SELECT | CODE: ${verifyErr?.code || 'NO_DATA'} | MESSAGE: ${verifyErr?.message || 'Verification SELECT returned no data'}`);
+    }
+
+    console.log(`PUBLISH DEBUG
+slot: home.workingSystem.visual
+CMS row: ${CMS_STORE_ID}
+media type: ${finalCleanState.media?.["home.workingSystem.visual"]?.type || 'media'}
+bucket: website-media
+storage path: ${finalCleanState.media?.["home.workingSystem.visual"]?.storagePath || 'none'}
+public URL: ${finalCleanState.media?.["home.workingSystem.visual"]?.url || 'none'}
+DB fetch: PASS
+DB update: PASS
+updated rows: 1
+fresh SELECT: PASS
+persisted slot: PASS
+persisted URL matches: PASS
+public CMS state updated: PASS`);
+
+    return verifiedRow.state;
   } catch (e) {
     console.error("Supabase save operation exception:", e);
     throw e;

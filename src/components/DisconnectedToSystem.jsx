@@ -6,7 +6,7 @@ import DecryptedText from './DecryptedText';
 import BlurText from './BlurText';
 
 export default function DisconnectedToSystem() {
-  const { getPage, getMedia } = useCMS();
+  const { cmsState, getPage, getMedia } = useCMS();
   
   const pageData = getPage('home', {
     workingSystemTitle: "From disconnected operations to one working system.",
@@ -21,8 +21,18 @@ export default function DisconnectedToSystem() {
     alt: "Project Buddy Working System Spatial Visual"
   };
 
-  // Published CMS Media ALWAYS takes priority over local fallback
-  const assignedMedia = getMedia('home', 'workingSystem', 'mainVisual', false, defaultWorkingSystemVisual);
+  // 1. Direct priority check on canonical CMS media slot: "home.workingSystem.visual"
+  const cmsSlotMedia = cmsState?.media?.["home.workingSystem.visual"] || cmsState?.media?.["home:workingSystem:mainVisual"];
+
+  // 2. Resolve assigned media object (with cache-busting version query string)
+  const assignedMedia = cmsSlotMedia ? {
+    src: `${cmsSlotMedia.url}${cmsSlotMedia.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(cmsSlotMedia.updatedAt || '')}`,
+    url: `${cmsSlotMedia.url}${cmsSlotMedia.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(cmsSlotMedia.updatedAt || '')}`,
+    type: cmsSlotMedia.type || (cmsSlotMedia.url?.match(/\.(mp4|webm|mov)$/i) ? 'video' : 'image'),
+    fit: cmsSlotMedia.fit || 'contain',
+    aspectRatio: cmsSlotMedia.aspectRatio || '16/9',
+    alt: 'Project Buddy Working System Spatial Visual'
+  } : getMedia('home', 'workingSystem', 'mainVisual', false, defaultWorkingSystemVisual);
 
   return (
     <section className="py-24 relative z-10 bg-slate-900/5 border-y border-slate-200/80">
