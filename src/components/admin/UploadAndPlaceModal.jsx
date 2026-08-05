@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getRegisteredPages, getRegisteredSections, getRegisteredSlots, getPlacementLabel } from '../../services/mediaRegistry';
-import { assignMediaToSlot, getCMSState, saveCMSState } from '../../services/cmsStore';
-import { uploadDirectFileToSupabase } from '../../services/supabaseClient';
-import SmartMedia from '../SmartMedia';
+import { assignMediaToSlot, getCMSState, saveCMSState, hydrateCMSFromCloud } from '../../services/cmsStore';
+import { uploadDirectFileToSupabase, MEDIA_BUCKET } from '../../services/supabaseClient';
+import CmsMedia from '../CmsMedia';
+import { getMediaType } from '../../utils/cmsMedia';
 import { X, Upload, Check, Monitor, Tablet, Smartphone, AlertTriangle, FileVideo, FileImage, Loader2 } from 'lucide-react';
 
 export default function UploadAndPlaceModal({
@@ -90,14 +91,13 @@ export default function UploadAndPlaceModal({
       return;
     }
 
-    // Create temporary local blob preview URL for immediate Admin preview (Revoked on change/unmount)
     const blobUrl = URL.createObjectURL(file);
-    const isVid = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
+    const detectedType = getMediaType({ name: file.name, mimeType: file.type });
 
     const newPending = {
       file,
       previewUrl: blobUrl,
-      type: isVid ? 'video' : 'image'
+      type: detectedType
     };
 
     if (pendingMedia?.previewUrl) {
@@ -144,42 +144,66 @@ export default function UploadAndPlaceModal({
   };
 
   const handlePublish = async () => {
-    if (!fileMetadata && !assetToAssign) {
-      alert("Please wait for file upload to complete before publishing.");
+    if (!fileMetadata && !assetToAssign && !pendingMedia) {
+      alert("Please choose a file or select an asset before publishing.");
       return;
     }
 
     const targetAsset = fileMetadata || assetToAssign;
+    if (!targetAsset || !targetAsset.url) {
+      alert("Please wait for file upload to complete before publishing.");
+      return;
+    }
+
     let currentState = getCMSState();
 
     try {
-      if (fileMetadata && !currentState.mediaAssets?.some(m => m.id === fileMetadata.id)) {
-        currentState = {
-          ...currentState,
-          mediaAssets: [fileMetadata, ...(currentState.mediaAssets || [])]
-        };
-      }
+      // Step G: Construct Canonical Publish Object
+      const canonicalMediaObj = {
+        type: getMediaType(targetAsset),
+        bucket: MEDIA_BUCKET,
+        storagePath: targetAsset.storagePath || `${selectedPage}/${selectedSection}/${Date.now()}`,
+        url: targetAsset.url,
+        mimeType: targetAsset.mimeType || (getMediaType(targetAsset) === 'video' ? 'video/mp4' : 'image/jpeg'),
+        name: targetAsset.name,
+        updatedAt: new Date().toISOString()
+      };
 
       if (mode === 'place') {
-        await assignMediaToSlot(
+        const verifiedResult = await assignMediaToSlot(
           selectedPage,
           selectedSection,
           selectedSlot,
           deviceTarget === 'mobile' ? '' : targetAsset.id,
           deviceTarget === 'mobile' ? targetAsset.id : '',
           fitMode,
-          targetAsset
+          canonicalMediaObj
         );
+
+        const slotKey = `${selectedPage}.${selectedSection}.${selectedSlot}`;
+        const slotKeyColon = `${selectedPage}:${selectedSection}:${selectedSlot}`;
+        const persisted = verifiedResult?.media?.[slotKey] || verifiedResult?.media?.[slotKeyColon] || verifiedResult?.media?.["home.workingSystem.visual"];
+
+        if (!persisted || !persisted.url) {
+          throw new Error(`STAGE: FRESH VERIFICATION | TABLE: site_cms_store | OPERATION: VERIFY | CODE: SLOT_NOT_FOUND | MESSAGE: Slot ${slotKey} was not verified in Supabase.`);
+        }
       } else {
         await saveCMSState(currentState);
       }
 
+      await hydrateCMSFromCloud();
+      alert("Published and verified in Supabase.");
       onClose();
     } catch (err) {
       console.error("Upload placement error:", err);
-      alert(err.message || "Failed to publish placement to database.");
+      alert(err.message || "STAGE: CMS PUBLISH | TABLE: site_cms_store | OPERATION: UPDATE | CODE: UNKNOWN | MESSAGE: Failed to publish placement to database.");
     }
   };
+
+  // Determine active asset object for Step 4 Preview (Step F)
+  const activePreviewAsset = pendingMedia
+    ? { url: pendingMedia.previewUrl, type: pendingMedia.type, mimeType: pendingMedia.type === 'video' ? 'video/mp4' : 'image/jpeg' }
+    : (fileMetadata || assetToAssign);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -353,7 +377,7 @@ export default function UploadAndPlaceModal({
                     <Check className="w-4 h-4 text-emerald-600" />
                     File Metadata Extracted Successfully
                   </span>
-                  <span className="font-mono">{fileMetadata.type.toUpperCase()}</span>
+                  <span className="font-mono">{getMediaType(fileMetadata).toUpperCase()}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono text-slate-600">
                   <div>FILE: {fileMetadata.name}</div>
@@ -454,36 +478,13 @@ export default function UploadAndPlaceModal({
               </div>
             </div>
 
-            {/* Live Responsive Preview Box */}
+            {/* Live Responsive Preview Box using CmsMedia (Step F) */}
             <div className="bg-slate-900 p-6 rounded-2xl flex items-center justify-center min-h-[300px]">
-              <div style={{ width: `${previewViewport}px`, maxWidth: '100%' }} className="mx-auto transition-all">
-                {pendingMedia ? (
-                  <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-[#0B132B] shadow-xl aspect-video">
-                    {pendingMedia.type === 'video' ? (
-                      <video
-                        src={pendingMedia.previewUrl}
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        className="w-full h-full object-contain pointer-events-none"
-                      />
-                    ) : (
-                      <img
-                        src={pendingMedia.previewUrl}
-                        alt="Pending Media Preview"
-                        className="w-full h-full object-contain"
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <SmartMedia
-                    src={fileMetadata ? fileMetadata.url : (assetToAssign ? assetToAssign.url : '')}
-                    type={fileMetadata ? fileMetadata.type : (assetToAssign ? assetToAssign.type : 'image')}
-                    fit={fitMode}
-                    aspectRatio={fileMetadata?.aspectRatio || "16/9"}
-                  />
-                )}
+              <div style={{ width: `${previewViewport}px`, maxWidth: '100%' }} className="mx-auto transition-all aspect-video relative overflow-hidden rounded-2xl">
+                <CmsMedia
+                  asset={activePreviewAsset}
+                  className="w-full h-full object-contain"
+                />
               </div>
             </div>
 

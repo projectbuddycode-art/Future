@@ -1,22 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
-import { getCMSState, saveCMSState, hydrateCMSFromCloud, getAssetPlacements, removeMediaFromSlot, setHomepageBackground } from '../../services/cmsStore';
+import { getCMSState, saveCMSState, hydrateCMSFromCloud, deleteMediaAsset, getAssetPlacements, removeMediaFromSlot } from '../../services/cmsStore';
 import { getSupabaseStatus, CMS_STORE_ID } from '../../services/supabaseClient';
 import { MEDIA_REGISTRY, getPlacementLabel } from '../../services/mediaRegistry';
 import UploadAndPlaceModal from '../../components/admin/UploadAndPlaceModal';
-import SmartMedia from '../../components/SmartMedia';
-import { Upload, ImageIcon, FileVideo, Check, Trash2, Edit3, Link2, Eye, Map, Layers, Plus, Filter, Search, AlertCircle, Sparkles, RefreshCw, Terminal } from 'lucide-react';
+import CmsMedia from '../../components/CmsMedia';
+import { isSameAsset } from '../../utils/cmsMedia';
+import { Upload, Check, Trash2, Link2, Map, Layers, Filter, Search, RefreshCw, Terminal, Loader2 } from 'lucide-react';
 
 export default function AdminMedia() {
   const [state, setState] = useState(getCMSState());
   const [status, setStatus] = useState(null);
   const [loadingCloud, setLoadingCloud] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'map'
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'image' | 'video'
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [modalInitial, setModalInitial] = useState({ pageId: 'home', sectionId: 'hero', slotId: 'backgroundVisual', assetToAssign: null });
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [modalInitial, setModalInitial] = useState({ pageId: 'home', sectionId: 'workingSystem', slotId: 'mainVisual', assetToAssign: null });
   const [copiedId, setCopiedId] = useState(null);
 
   const refreshLibrary = async () => {
@@ -56,25 +57,20 @@ export default function AdminMedia() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDeleteAsset = async (assetId) => {
-    const placements = getAssetPlacements(assetId);
-    if (placements.length > 0) {
-      alert(`Cannot delete asset because it is currently assigned to ${placements.length} placement slot(s). Please unassign it first.`);
+  const handleDeleteAsset = async (asset) => {
+    if (!window.confirm(`Delete this media asset (${asset.name}) permanently from Supabase Storage?`)) {
       return;
     }
 
-    const updatedAssets = mediaAssets.filter(m => m.id !== assetId);
-    const newState = {
-      ...state,
-      mediaAssets: updatedAssets
-    };
+    setDeletingId(asset.id);
     try {
-      await saveCMSState(newState);
-      setDeleteConfirmId(null);
+      await deleteMediaAsset(asset);
+      setDeletingId(null);
       await refreshLibrary();
     } catch (err) {
       console.error("Delete asset error:", err);
-      alert(err.message || "Failed to delete asset from database.");
+      alert(err.message || "Failed to delete asset from Storage.");
+      setDeletingId(null);
     }
   };
 
@@ -236,17 +232,14 @@ export default function AdminMedia() {
                 const placements = getAssetPlacements(asset.id);
                 const isAssigned = placements.length > 0;
 
-                // PHASE 8: Check if asset is CURRENTLY LIVE on Working System
-                const isLiveInWorkingSystem = Boolean(
-                  (liveWorkingAsset?.storagePath && asset.storagePath && liveWorkingAsset.storagePath === asset.storagePath) ||
-                  (liveWorkingAsset?.url && asset.url && liveWorkingAsset.url === asset.url)
-                );
+                // PHASE I: Strictly calculate CURRENTLY LIVE using isSameAsset helper
+                const isLiveInWorkingSystem = isSameAsset(asset, liveWorkingAsset);
 
                 return (
                   <div key={asset.id} className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
                     <div className="space-y-2">
                       <div className="h-44 rounded-xl overflow-hidden bg-slate-900 border border-slate-100 relative">
-                        <SmartMedia media={asset} className="h-full w-full" />
+                        <CmsMedia asset={asset} className="h-full w-full object-contain" />
                         <span className="absolute top-2 right-2 px-2.5 py-1 rounded-md bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-mono font-bold uppercase">
                           {asset.type}
                         </span>
@@ -305,11 +298,12 @@ export default function AdminMedia() {
                           {copiedId === asset.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Link2 className="w-4 h-4" />}
                         </button>
                         <button
-                          onClick={() => handleDeleteAsset(asset.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                          title="Delete Asset"
+                          disabled={deletingId === asset.id}
+                          onClick={() => handleDeleteAsset(asset)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+                          title="Delete Asset permanently"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {deletingId === asset.id ? <Loader2 className="w-4 h-4 animate-spin text-red-600" /> : <Trash2 className="w-4 h-4" />}
                         </button>
                       </div>
                     </div>

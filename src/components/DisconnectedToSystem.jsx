@@ -1,38 +1,36 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useCMS } from '../context/CMSContext';
-import SmartMedia from './SmartMedia';
+import CmsMedia from './CmsMedia';
 import DecryptedText from './DecryptedText';
 import BlurText from './BlurText';
 
 export default function DisconnectedToSystem() {
-  const { cmsState, getPage, getMedia } = useCMS();
+  const { cmsState, getPage } = useCMS();
   
   const pageData = getPage('home', {
     workingSystemTitle: "From disconnected operations to one working system.",
     workingSystemDesc: "Most businesses operate across fragmented tools, isolated spreadsheets, and manual hand-offs. Project Buddy builds the unified operational layer that connects your entire business logic into one cohesive system."
   });
 
-  const defaultWorkingSystemVisual = {
-    src: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80",
-    type: "image",
-    aspectRatio: "16/9",
-    fit: "contain",
-    alt: "Project Buddy Working System Spatial Visual"
-  };
+  // Canonical resolution of Working System CMS media assignment
+  const workingSystemMedia = cmsState?.media?.["home.workingSystem.visual"] || cmsState?.media?.["home:workingSystem:mainVisual"];
 
-  // 1. Direct priority check on canonical CMS media slot: "home.workingSystem.visual"
-  const cmsSlotMedia = cmsState?.media?.["home.workingSystem.visual"] || cmsState?.media?.["home:workingSystem:mainVisual"];
-
-  // 2. Resolve assigned media object (with cache-busting version query string)
-  const assignedMedia = cmsSlotMedia ? {
-    src: `${cmsSlotMedia.url}${cmsSlotMedia.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(cmsSlotMedia.updatedAt || '')}`,
-    url: `${cmsSlotMedia.url}${cmsSlotMedia.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(cmsSlotMedia.updatedAt || '')}`,
-    type: cmsSlotMedia.type || (cmsSlotMedia.url?.match(/\.(mp4|webm|mov)$/i) ? 'video' : 'image'),
-    fit: cmsSlotMedia.fit || 'contain',
-    aspectRatio: cmsSlotMedia.aspectRatio || '16/9',
-    alt: 'Project Buddy Working System Spatial Visual'
-  } : getMedia('home', 'workingSystem', 'mainVisual', false, defaultWorkingSystemVisual);
+  const defaultMeshFallback = (
+    <div className="w-full h-full p-8 flex flex-col items-center justify-center bg-slate-950 text-white text-center space-y-4 font-mono relative overflow-hidden aspect-video rounded-2xl border border-slate-800 shadow-xl">
+      <div className="absolute inset-0 bg-tech-grid opacity-30 pointer-events-none" />
+      <div className="w-16 h-16 rounded-2xl bg-[#0052FF]/20 border border-[#0052FF]/40 text-[#0052FF] flex items-center justify-center text-xl font-bold">
+        PB
+      </div>
+      <div className="space-y-1 relative z-10">
+        <div className="text-sm font-bold text-white tracking-wider">PROJECT BUDDY SYSTEM MESH</div>
+        <div className="text-xs text-slate-400">Team • Customer • Process • Data • Tools • Workflow</div>
+      </div>
+      <div className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] border border-emerald-500/30">
+        SYSTEM ENGINE READY
+      </div>
+    </div>
+  );
 
   return (
     <section className="py-24 relative z-10 bg-slate-900/5 border-y border-slate-200/80">
@@ -72,15 +70,21 @@ export default function DisconnectedToSystem() {
           </div>
         </div>
 
-        {/* Dynamic SmartMedia Visual Slot (Contain fit by default — preserves Google Flow MP4 / Image) */}
+        {/* Dynamic CMS Media Container */}
         <motion.div
           initial={{ opacity: 0, y: 28 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="max-w-5xl mx-auto"
+          className="max-w-5xl mx-auto overflow-hidden rounded-2xl border border-slate-200/90 bg-[#0B132B] shadow-xl backdrop-blur-md aspect-video relative"
         >
-          <SmartMedia media={assignedMedia} />
+          {workingSystemMedia ? (
+            <CmsMedia
+              asset={workingSystemMedia}
+              className="w-full h-full object-contain"
+              fallback={defaultMeshFallback}
+            />
+          ) : defaultMeshFallback}
         </motion.div>
 
       </div>

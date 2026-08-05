@@ -1,5 +1,5 @@
 /**
- * Project Buddy CMS Store Service v3.3 — Production Persistence & Realtime Verification Engine
+ * Project Buddy CMS Store Service v3.4 — Production Persistence & Realtime Verification Engine
  * Restricts localStorage fallback strictly to local development mode.
  * In production, saving/publishing requires a successful, verified write to Supabase Database.
  */
@@ -9,8 +9,12 @@ import {
   saveCMSDataToSupabase,
   loadMediaLibraryFromStorage,
   isSupabaseConfigured,
+  supabase,
+  MEDIA_BUCKET,
   CMS_STORE_ID
 } from './supabaseClient';
+
+import { getMediaType, isSameAsset } from '../utils/cmsMedia';
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
@@ -264,7 +268,6 @@ export async function hydrateCMSFromCloud() {
 
   const currentDbState = cloudData || getCMSState();
 
-  // Combine Discovered Storage Assets with existing state.mediaAssets
   let combinedAssets = storageAssets;
   if (currentDbState?.mediaAssets) {
     const storagePaths = new Set(storageAssets.map(a => a.storagePath));
@@ -296,13 +299,11 @@ export async function saveCMSState(newState) {
   }
 
   if (isSupabaseConfigured) {
-    // 1. Execute DB UPDATE and fresh SELECT verification in saveCMSDataToSupabase
     const verifiedState = await saveCMSDataToSupabase(updatedState);
     if (!verifiedState) {
       throw new Error("STAGE: CMS UPDATE | TABLE: site_cms_store | OPERATION: UPDATE | CODE: WRITE_FAILED | MESSAGE: Supabase Cloud Database update failed.");
     }
 
-    // Refresh discovered storage assets into final state
     const storageAssets = await loadMediaLibraryFromStorage();
     const storagePaths = new Set(storageAssets.map(a => a.storagePath));
     const customAssets = (verifiedState.mediaAssets || []).filter(a => !a.storagePath || !storagePaths.has(a.storagePath));
@@ -333,13 +334,12 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   const keyColon = `${pageId}:${sectionId}:${slotId}`;
   const keyDot = `${pageId}.${sectionId}.${slotId}`;
 
-  // 1. Direct lookup in state.media (e.g. state.media["home.workingSystem.visual"] or "home:workingSystem:mainVisual")
   const directMedia = state.media?.[keyDot] || state.media?.[keyColon];
   if (directMedia && (directMedia.url || directMedia.src)) {
     const rawUrl = directMedia.url || directMedia.src;
-    const isVid = directMedia.type === 'video' || (rawUrl && Boolean(rawUrl.match(/\.(mp4|webm|mov)$/i)));
+    const isVid = getMediaType(directMedia) === 'video';
     const versionedUrl = directMedia.updatedAt
-      ? `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}v=${encodeURIComponent(directMedia.updatedAt)}`
+      ? `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(directMedia.updatedAt)}`
       : rawUrl;
 
     return {
@@ -355,13 +355,12 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
     };
   }
 
-  // 2. Section Media mapping lookup (e.g. state.sectionMedia["home:workingSystem:mainVisual"])
   const assignment = state.sectionMedia?.[keyColon] || state.sectionMedia?.[keyDot];
   if (assignment) {
     if (assignment.url) {
-      const isVid = assignment.type === 'video' || (assignment.url && Boolean(assignment.url.match(/\.(mp4|webm|mov)$/i)));
+      const isVid = getMediaType(assignment) === 'video';
       const versionedUrl = assignment.updatedAt
-        ? `${assignment.url}${assignment.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(assignment.updatedAt)}`
+        ? `${assignment.url}${assignment.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(assignment.updatedAt)}`
         : assignment.url;
       return {
         src: versionedUrl,
@@ -377,10 +376,10 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
     const asset = state.mediaAssets?.find(m => m.id === targetMediaId);
 
     if (asset) {
-      const isVid = asset.type === 'video' || (asset.url && Boolean(asset.url.match(/\.(mp4|webm|mov)$/i)));
+      const isVid = getMediaType(asset) === 'video';
       const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
       const versionedUrl = versionDate
-        ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(versionDate)}`
+        ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(versionDate)}`
         : asset.url;
 
       return {
@@ -417,7 +416,7 @@ export function getHomepageBackground(isMobile = false) {
 
   const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
   const versionedUrl = versionDate
-    ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(versionDate)}`
+    ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(versionDate)}`
     : asset.url;
 
   return {
@@ -426,7 +425,7 @@ export function getHomepageBackground(isMobile = false) {
       ...asset,
       src: versionedUrl,
       url: versionedUrl,
-      type: asset.type === 'video' || Boolean(asset.url.match(/\.(mp4|webm|mov)$/i)) ? 'video' : 'image'
+      type: getMediaType(asset)
     },
     fit: assignment.fit || 'cover',
     focalX: assignment.focalX ?? 50,
@@ -455,7 +454,7 @@ export async function setHomepageBackground(mode, desktopMediaId = '', mobileMed
         id: `bg_${Date.now()}`,
         name: asset.name,
         mediaId: desktopMediaId,
-        type: asset.type,
+        type: getMediaType(asset),
         mode: 'custom',
         active: true
       });
@@ -486,15 +485,15 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
   const timestamp = new Date().toISOString();
   const targetAsset = directMediaAsset || state.mediaAssets?.find(m => m.id === desktopMediaId);
   const mediaUrl = targetAsset?.url || '';
-  const isVid = targetAsset?.type === 'video' || (mediaUrl && Boolean(mediaUrl.match(/\.(mp4|webm|mov)$/i)));
-  const mediaType = isVid ? 'video' : 'image';
+  const mediaType = getMediaType(targetAsset || { url: mediaUrl });
 
   const mediaSlotObj = {
     type: mediaType,
     url: mediaUrl,
-    bucket: 'website-media',
+    bucket: MEDIA_BUCKET,
     storagePath: targetAsset?.storagePath || `${pageId}/${sectionId}/${Date.now()}`,
     mimeType: targetAsset?.mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg'),
+    name: targetAsset?.name || 'media_asset',
     updatedAt: timestamp,
     fit: fit || targetAsset?.fit || 'contain',
     aspectRatio: targetAsset?.aspectRatio || '16/9'
@@ -525,6 +524,60 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
 
   const verifiedState = await saveCMSState(newState);
   return verifiedState;
+}
+
+/**
+ * Delete Media Asset permanently from Supabase Storage and remove any dangling CMS references (Steps J, K, L)
+ */
+export async function deleteMediaAsset(asset) {
+  if (!asset) throw new Error("No asset provided for deletion.");
+
+  const storagePath = asset.storagePath || asset.path;
+  if (!storagePath) {
+    throw new Error("Invalid asset: Missing storagePath required for Storage deletion.");
+  }
+
+  // 1. Delete object from Supabase Storage bucket 'website-media'
+  if (isSupabaseConfigured && supabase) {
+    const { error: storageErr } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .remove([storagePath]);
+
+    if (storageErr) {
+      throw new Error(`Supabase Storage Deletion Error: ${storageErr.message}`);
+    }
+  }
+
+  // 2. Remove matching dangling references from CMS state.media and state.sectionMedia
+  const state = getCMSState();
+  const nextMedia = { ...(state.media || {}) };
+  const nextSectionMedia = { ...(state.sectionMedia || {}) };
+
+  Object.keys(nextMedia).forEach(slotKey => {
+    if (isSameAsset(nextMedia[slotKey], asset) || nextMedia[slotKey]?.storagePath === storagePath) {
+      delete nextMedia[slotKey];
+    }
+  });
+
+  Object.keys(nextSectionMedia).forEach(slotKey => {
+    if (nextSectionMedia[slotKey]?.storagePath === storagePath || nextSectionMedia[slotKey]?.desktopMediaId === asset.id) {
+      delete nextSectionMedia[slotKey];
+    }
+  });
+
+  const updatedAssets = (state.mediaAssets || []).filter(m => !isSameAsset(m, asset) && m.storagePath !== storagePath && m.id !== asset.id);
+
+  const newState = {
+    ...state,
+    media: nextMedia,
+    sectionMedia: nextSectionMedia,
+    mediaAssets: updatedAssets
+  };
+
+  // 3. Persist cleaned state & re-hydrate from cloud
+  await saveCMSState(newState);
+  await hydrateCMSFromCloud();
+  return newState;
 }
 
 /**
