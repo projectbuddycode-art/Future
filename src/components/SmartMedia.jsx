@@ -9,7 +9,7 @@ import React, { useRef, useEffect, useState } from 'react';
 export default function SmartMedia({
   media,
   src,
-  type = 'image',
+  type,
   width,
   height,
   aspectRatio,
@@ -23,14 +23,13 @@ export default function SmartMedia({
 }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
-  const [inView, setInView] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [calculatedRatio, setCalculatedRatio] = useState(aspectRatio || '16/9');
 
   const activeMedia = media || {
     src: src || '',
     url: src || '',
-    type,
+    type: type || 'image',
     width: width || 1200,
     height: height || 675,
     aspectRatio: aspectRatio || '16/9',
@@ -40,48 +39,27 @@ export default function SmartMedia({
     alt: alt || 'Project Buddy Visual',
   };
 
-  // Support both src and url properties seamlessly
   const mediaSrc = activeMedia.src || activeMedia.url || '';
-  const isVideo = activeMedia.type === 'video' || (mediaSrc && mediaSrc.match(/\.(mp4|webm|mov)$/i));
+  const rawType = activeMedia.type || type;
+  const isVideo = rawType === 'video' || (mediaSrc && Boolean(mediaSrc.match(/\.(mp4|webm|mov|m4v)($|\?)/i)));
 
   useEffect(() => {
     setHasError(false);
   }, [mediaSrc]);
 
-  // IntersectionObserver for lazy loading & video playback control
+  // Video autoplay & continuous loop handler
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setInView(true);
-          if (videoRef.current) {
-            videoRef.current.play().catch(err => console.warn("Autoplay deferred:", err));
-          }
-        } else {
-          if (videoRef.current) {
-            videoRef.current.pause();
-          }
-        }
-      },
-      { threshold: 0.05, rootMargin: '100px' }
-    );
-
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  // Continuous video loop enforcer
-  useEffect(() => {
-    if (inView && isVideo && videoRef.current && !hasError) {
+    if (isVideo && videoRef.current && mediaSrc && !hasError) {
       videoRef.current.loop = true;
       videoRef.current.muted = true;
-      videoRef.current.play().catch(err => {
-        console.warn("Autoplay deferred:", err);
-      });
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn("Video playback deferred/handled:", err);
+        });
+      }
     }
-  }, [inView, isVideo, hasError, mediaSrc]);
+  }, [isVideo, mediaSrc, hasError]);
 
   const handleImageLoad = (e) => {
     const naturalWidth = e.target.naturalWidth;
@@ -92,10 +70,13 @@ export default function SmartMedia({
     }
   };
 
-  const handleVideoEnded = (e) => {
-    if (e.target) {
-      e.target.currentTime = 0;
-      e.target.play().catch(err => console.warn("Replay error:", err));
+  const handleVideoError = (e) => {
+    if (mediaSrc) {
+      console.error("WORKING SYSTEM VIDEO ERROR", {
+        src: mediaSrc,
+        error: e.target?.error
+      });
+      setHasError(true);
     }
   };
 
@@ -113,7 +94,6 @@ export default function SmartMedia({
         ...style,
       }}
     >
-      {/* Visual Asset Rendering */}
       {hasError || !mediaSrc ? (
         <div className="w-full h-full p-8 flex flex-col items-center justify-center bg-slate-950 text-white text-center space-y-4 font-mono relative overflow-hidden">
           <div className="absolute inset-0 bg-tech-grid opacity-30 pointer-events-none" />
@@ -130,20 +110,22 @@ export default function SmartMedia({
         </div>
       ) : isVideo ? (
         <video
+          key={mediaSrc}
           ref={videoRef}
-          src={inView ? mediaSrc : undefined}
+          src={mediaSrc}
           poster={activeMedia.poster || activeMedia.posterUrl}
           autoPlay
           muted
           loop
           playsInline
-          onEnded={handleVideoEnded}
-          onError={() => setHasError(true)}
+          preload="auto"
+          onError={handleVideoError}
           className={`w-full h-full ${finalFitClass} pointer-events-none`}
           style={focalStyle}
         />
       ) : (
         <img
+          key={mediaSrc}
           src={mediaSrc}
           alt={activeMedia.alt || 'Project Buddy Visual'}
           loading="lazy"

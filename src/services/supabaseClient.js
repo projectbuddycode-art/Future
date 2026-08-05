@@ -20,6 +20,24 @@ export const supabase = isSupabaseConfigured
   : null;
 
 /**
+ * Universal Media Type Normalizer (Requirement 6)
+ * Classification Priority:
+ * 1. asset.mimeType
+ * 2. Storage metadata.mimetype
+ * 3. Filename extension (.mp4, .webm, .mov, .m4v -> video; .png, .jpg, .jpeg, .webp, .avif -> image)
+ */
+export function getMediaType(asset) {
+  if (!asset) return 'image';
+  const urlOrName = asset.url || asset.src || asset.name || asset.storagePath || '';
+  if (asset.mimeType && asset.mimeType.startsWith('video/')) return 'video';
+  if (asset.mimeType && asset.mimeType.startsWith('image/')) return 'image';
+  if (asset.type === 'video' || asset.type === 'image') return asset.type;
+  if (urlOrName.match(/\.(mp4|webm|mov|m4v)($|\?)/i)) return 'video';
+  if (urlOrName.match(/\.(jpg|jpeg|png|webp|avif|gif|svg)($|\?)/i)) return 'image';
+  return 'image';
+}
+
+/**
  * Get Supabase Connection & Bucket Status
  */
 export async function getSupabaseStatus() {
@@ -104,10 +122,8 @@ export async function loadMediaLibraryFromStorage() {
         if (seenPaths.has(storagePath)) continue;
         seenPaths.add(storagePath);
 
-        const isVid = Boolean(file.name.match(/\.(mp4|webm|mov)$/i)) || (file.metadata?.mimetype && file.metadata.mimetype.startsWith('video/'));
-        const isImg = Boolean(file.name.match(/\.(jpg|jpeg|png|webp|avif|gif|svg)$/i)) || (file.metadata?.mimetype && file.metadata.mimetype.startsWith('image/'));
-
-        if (!isVid && !isImg) continue;
+        const mime = file.metadata?.mimetype || '';
+        const detectedType = getMediaType({ name: file.name, mimeType: mime, storagePath });
 
         const { data: publicData } = supabase.storage
           .from(MEDIA_BUCKET)
@@ -121,8 +137,8 @@ export async function loadMediaLibraryFromStorage() {
           url: publicUrl,
           bucket: MEDIA_BUCKET,
           storagePath: storagePath,
-          type: isVid ? 'video' : 'image',
-          mimeType: file.metadata?.mimetype || (isVid ? 'video/mp4' : 'image/jpeg'),
+          type: detectedType,
+          mimeType: mime || (detectedType === 'video' ? 'video/mp4' : 'image/jpeg'),
           createdAt: file.created_at || new Date().toISOString(),
           fileSize: file.metadata?.size ? `${(file.metadata.size / (1024 * 1024)).toFixed(2)} MB` : 'Asset',
           aspectRatio: "16/9",
@@ -173,7 +189,6 @@ export async function saveCMSDataToSupabase(state) {
   const authenticated = user ? "YES" : "NO";
 
   try {
-    // 1. Fetch fresh current row from database
     const { data: currentRow, error: fetchErr } = await supabase
       .from('site_cms_store')
       .select('id, state, updated_at')
@@ -188,7 +203,6 @@ export async function saveCMSDataToSupabase(state) {
     const cleanInputState = JSON.parse(JSON.stringify(state));
     const existingState = currentRow?.state || {};
 
-    // 2. Build nextState using deep merge
     const nextState = {
       ...existingState,
       ...cleanInputState,
@@ -204,7 +218,6 @@ export async function saveCMSDataToSupabase(state) {
 
     const finalCleanState = JSON.parse(JSON.stringify(nextState));
 
-    // 3. UPDATE existing active row in site_cms_store
     const { data: updatedRow, error: updateErr } = await supabase
       .from('site_cms_store')
       .update({
@@ -224,7 +237,6 @@ export async function saveCMSDataToSupabase(state) {
       throw new Error(`STAGE: CMS UPDATE | TABLE: site_cms_store | OPERATION: UPDATE | CODE: NO_ROW_UPDATED | MESSAGE: Zero rows updated for ID ${CMS_STORE_ID}`);
     }
 
-    // 4. Fresh Database Verification SELECT
     const { data: verifiedRow, error: verifyErr } = await supabase
       .from('site_cms_store')
       .select('id, state, updated_at')
@@ -292,7 +304,7 @@ export function subscribeToCMSRealtime(onStateChange) {
  * Direct File Upload to Supabase Storage Bucket 'website-media'
  */
 export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
-  const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
+  const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov|m4v)$/i));
   
   const meta = isVideo
     ? await extractVideoMetadata(file)
