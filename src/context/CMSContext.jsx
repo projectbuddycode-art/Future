@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getCMSState, hydrateCMSFromCloud } from '../services/cmsStore';
+import { getCMSState, hydrateCMSFromCloud, updateInMemCMSState } from '../services/cmsStore';
+import { subscribeToCMSRealtime } from '../services/supabaseClient';
 import {
   getPublishedPageContent,
   getPublishedSectionMedia,
@@ -14,8 +15,16 @@ export function CMSProvider({ children }) {
   const [cmsState, setCmsState] = useState(getCMSState());
 
   useEffect(() => {
-    // 1. Initial Cloud Sync: Hydrate published state from Supabase Database for cross-tab & cross-device Vercel visitors
-    hydrateCMSFromCloud().then(() => {
+    // 1. Initial Cloud Sync: Fetch fresh published state from Supabase Database on mount
+    hydrateCMSFromCloud().then((cloudData) => {
+      if (cloudData) {
+        setCmsState(getCMSState());
+      }
+    });
+
+    // 2. Realtime PostgreSQL Subscription: Instantly reflect Admin publishes across all open sessions/devices without reload
+    const unsubscribeRealtime = subscribeToCMSRealtime((freshCloudState) => {
+      updateInMemCMSState(freshCloudState);
       setCmsState(getCMSState());
     });
 
@@ -23,11 +32,12 @@ export function CMSProvider({ children }) {
       setCmsState(getCMSState());
     };
 
-    // 2. Listen to local & cross-tab CMS state update events
+    // 3. Listen to local & cross-tab CMS state update events
     window.addEventListener('cms-state-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
     return () => {
+      unsubscribeRealtime();
       window.removeEventListener('cms-state-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };

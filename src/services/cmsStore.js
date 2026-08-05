@@ -1,5 +1,5 @@
 /**
- * Project Buddy CMS Store Service v3.1 — Production Persistence & Verification Engine
+ * Project Buddy CMS Store Service v3.2 — Production Persistence & Realtime Verification Engine
  * Restricts localStorage fallback strictly to local development mode.
  * In production, saving/publishing requires a successful, verified write to Supabase Database.
  */
@@ -67,6 +67,7 @@ const defaultState = {
       heroDescription: "Project Buddy is committed to maintaining strict data privacy, enterprise confidentiality, and zero-trust security.",
     }
   },
+  media: {},
   sectionMedia: {
     'home:hero:backgroundVisual': { mode: 'default', desktopMediaId: '', mobileMediaId: '', fit: 'cover', focalX: 50, focalY: 50, overlay: 'none', opacity: 100 },
     'home:workingSystem:mainVisual': { mode: 'custom', desktopMediaId: 'media_hero_01', mobileMediaId: '', fit: 'contain' },
@@ -204,7 +205,6 @@ const defaultState = {
   lastUpdated: new Date().toISOString(),
 };
 
-// In-memory runtime cache for zero-latency UI re-renders
 let activeCMSState = null;
 
 function loadInitialState() {
@@ -235,6 +235,7 @@ export function updateInMemCMSState(cloudState) {
     ...cloudState,
     siteSettings: { ...defaultState.siteSettings, ...(cloudState.siteSettings || {}) },
     pages: { ...defaultState.pages, ...(cloudState.pages || {}) },
+    media: { ...defaultState.media, ...(cloudState.media || {}) },
     sectionMedia: { ...defaultState.sectionMedia, ...(cloudState.sectionMedia || {}) },
   };
 
@@ -283,16 +284,16 @@ export async function saveCMSState(newState) {
       throw new Error("Supabase fresh SELECT verification failed. Database returned no record for row: " + CMS_STORE_ID);
     }
 
-    // 3. Deep structural comparison on normalized state (omitting volatile field references)
+    // 3. Structural comparison
     const isSettingsMatch = JSON.stringify(verifiedData.siteSettings || {}) === JSON.stringify(writtenState.siteSettings || {});
     const isPagesMatch = JSON.stringify(verifiedData.pages || {}) === JSON.stringify(writtenState.pages || {});
-    const isMediaMatch = JSON.stringify(verifiedData.sectionMedia || {}) === JSON.stringify(writtenState.sectionMedia || {});
+    const isSectionMediaMatch = JSON.stringify(verifiedData.sectionMedia || {}) === JSON.stringify(writtenState.sectionMedia || {});
     
     const writtenAssets = writtenState.mediaAssets || [];
     const verifiedAssets = verifiedData.mediaAssets || [];
     const isAssetCountMatch = writtenAssets.length === verifiedAssets.length;
 
-    if (!isSettingsMatch || !isPagesMatch || !isMediaMatch || !isAssetCountMatch) {
+    if (!isSettingsMatch || !isPagesMatch || !isSectionMediaMatch || !isAssetCountMatch) {
       console.warn("Structural verification notice - checking specific asset match...");
       if (writtenAssets.length > 0 && verifiedAssets.length > 0) {
         const latestWritten = writtenAssets[0];
@@ -325,21 +326,71 @@ export async function saveCMSState(newState) {
  */
 export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   const state = getCMSState();
-  const key = `${pageId}:${sectionId}:${slotId}`;
-  const assignment = state.sectionMedia?.[key];
+  const keyColon = `${pageId}:${sectionId}:${slotId}`;
+  const keyDot = `${pageId}.${sectionId}.${slotId}`;
 
-  if (!assignment) return null;
+  // 1. Direct lookup in state.media (e.g. state.media["home.workingSystem.visual"] or "home:workingSystem:mainVisual")
+  const directMedia = state.media?.[keyDot] || state.media?.[keyColon];
+  if (directMedia && (directMedia.url || directMedia.src)) {
+    const rawUrl = directMedia.url || directMedia.src;
+    const isVid = directMedia.type === 'video' || (rawUrl && Boolean(rawUrl.match(/\.(mp4|webm|mov)$/i)));
+    const versionedUrl = directMedia.updatedAt
+      ? `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}v=${encodeURIComponent(directMedia.updatedAt)}`
+      : rawUrl;
 
-  const targetMediaId = (isMobile && assignment.mobileMediaId) ? assignment.mobileMediaId : assignment.desktopMediaId;
-  const asset = state.mediaAssets?.find(m => m.id === targetMediaId);
+    return {
+      src: versionedUrl,
+      url: versionedUrl,
+      type: isVid ? 'video' : 'image',
+      fit: directMedia.fit || 'contain',
+      aspectRatio: directMedia.aspectRatio || '16/9',
+      alt: directMedia.alt || 'Project Buddy Visual Asset',
+      storagePath: directMedia.storagePath || '',
+      bucket: directMedia.bucket || 'website-media',
+      updatedAt: directMedia.updatedAt || ''
+    };
+  }
 
-  if (!asset) return null;
+  // 2. Section Media mapping lookup (e.g. state.sectionMedia["home:workingSystem:mainVisual"])
+  const assignment = state.sectionMedia?.[keyColon] || state.sectionMedia?.[keyDot];
+  if (assignment) {
+    if (assignment.url) {
+      const isVid = assignment.type === 'video' || (assignment.url && Boolean(assignment.url.match(/\.(mp4|webm|mov)$/i)));
+      const versionedUrl = assignment.updatedAt
+        ? `${assignment.url}${assignment.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(assignment.updatedAt)}`
+        : assignment.url;
+      return {
+        src: versionedUrl,
+        url: versionedUrl,
+        type: isVid ? 'video' : 'image',
+        fit: assignment.fit || 'contain',
+        aspectRatio: assignment.aspectRatio || '16/9',
+        alt: assignment.alt || 'Project Buddy Visual Asset',
+      };
+    }
 
-  return {
-    ...asset,
-    fit: assignment.fit || asset.fit || 'contain',
-    focalPoint: { x: assignment.focalX ?? 50, y: assignment.focalY ?? 50 },
-  };
+    const targetMediaId = (isMobile && assignment.mobileMediaId) ? assignment.mobileMediaId : assignment.desktopMediaId;
+    const asset = state.mediaAssets?.find(m => m.id === targetMediaId);
+
+    if (asset) {
+      const isVid = asset.type === 'video' || (asset.url && Boolean(asset.url.match(/\.(mp4|webm|mov)$/i)));
+      const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
+      const versionedUrl = versionDate
+        ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(versionDate)}`
+        : asset.url;
+
+      return {
+        ...asset,
+        src: versionedUrl,
+        url: versionedUrl,
+        type: isVid ? 'video' : 'image',
+        fit: assignment.fit || asset.fit || 'contain',
+        focalPoint: { x: assignment.focalX ?? 50, y: assignment.focalY ?? 50 },
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -360,9 +411,19 @@ export function getHomepageBackground(isMobile = false) {
     return { mode: 'default' };
   }
 
+  const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
+  const versionedUrl = versionDate
+    ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(versionDate)}`
+    : asset.url;
+
   return {
     mode: 'custom',
-    asset,
+    asset: {
+      ...asset,
+      src: versionedUrl,
+      url: versionedUrl,
+      type: asset.type === 'video' || Boolean(asset.url.match(/\.(mp4|webm|mov)$/i)) ? 'video' : 'image'
+    },
     fit: assignment.fit || 'cover',
     focalX: assignment.focalX ?? 50,
     focalY: assignment.focalY ?? 50,
@@ -400,7 +461,7 @@ export async function setHomepageBackground(mode, desktopMediaId = '', mobileMed
   const newState = {
     ...state,
     sectionMedia: {
-      ...state.sectionMedia,
+      ...(state.sectionMedia || {}),
       [key]: { mode, desktopMediaId, mobileMediaId, fit, focalX, focalY, overlay, opacity }
     },
     backgroundHistory: updatedHistory
@@ -411,17 +472,50 @@ export async function setHomepageBackground(mode, desktopMediaId = '', mobileMed
 }
 
 /**
- * Assign Media to Section Slot
+ * Assign Media to Section Slot with Deep Structural Merge
  */
-export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mobileMediaId = '', fit = 'contain') {
+export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mobileMediaId = '', fit = 'contain', directMediaAsset = null) {
   const state = getCMSState();
-  const key = `${pageId}:${sectionId}:${slotId}`;
+  const keyColon = `${pageId}:${sectionId}:${slotId}`;
+  const keyDot = `${pageId}.${sectionId}.${slotId}`;
+
+  const timestamp = new Date().toISOString();
+  const targetAsset = directMediaAsset || state.mediaAssets?.find(m => m.id === desktopMediaId);
+  const mediaUrl = targetAsset?.url || '';
+  const isVid = targetAsset?.type === 'video' || (mediaUrl && Boolean(mediaUrl.match(/\.(mp4|webm|mov)$/i)));
+  const mediaType = isVid ? 'video' : 'image';
+
+  const mediaSlotObj = {
+    type: mediaType,
+    url: mediaUrl,
+    bucket: 'website-media',
+    storagePath: targetAsset?.storagePath || `${pageId}/${sectionId}/${Date.now()}`,
+    mimeType: targetAsset?.mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg'),
+    updatedAt: timestamp,
+    fit: fit || targetAsset?.fit || 'contain',
+    aspectRatio: targetAsset?.aspectRatio || '16/9'
+  };
 
   const newState = {
     ...state,
+    media: {
+      ...(state.media || {}),
+      [keyDot]: mediaSlotObj,
+      [keyColon]: mediaSlotObj,
+      "home.workingSystem.visual": (pageId === 'home' && (sectionId === 'workingSystem' || slotId === 'mainVisual')) ? mediaSlotObj : (state.media?.["home.workingSystem.visual"] || mediaSlotObj)
+    },
     sectionMedia: {
-      ...state.sectionMedia,
-      [key]: { mode: 'custom', desktopMediaId, mobileMediaId, fit }
+      ...(state.sectionMedia || {}),
+      [keyColon]: {
+        mode: 'custom',
+        desktopMediaId: desktopMediaId || targetAsset?.id || '',
+        mobileMediaId,
+        fit,
+        url: mediaUrl,
+        type: mediaType,
+        storagePath: mediaSlotObj.storagePath,
+        updatedAt: timestamp
+      }
     }
   };
 
@@ -434,12 +528,19 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
  */
 export async function removeMediaFromSlot(pageId, sectionId, slotId) {
   const state = getCMSState();
-  const key = `${pageId}:${sectionId}:${slotId}`;
-  const newSectionMedia = { ...state.sectionMedia };
-  delete newSectionMedia[key];
+  const keyColon = `${pageId}:${sectionId}:${slotId}`;
+  const keyDot = `${pageId}.${sectionId}.${slotId}`;
+
+  const newMedia = { ...(state.media || {}) };
+  delete newMedia[keyColon];
+  delete newMedia[keyDot];
+
+  const newSectionMedia = { ...(state.sectionMedia || {}) };
+  delete newSectionMedia[keyColon];
 
   const newState = {
     ...state,
+    media: newMedia,
     sectionMedia: newSectionMedia
   };
 

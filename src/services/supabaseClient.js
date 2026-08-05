@@ -34,7 +34,6 @@ export async function getSupabaseStatus() {
   }
 
   try {
-    // 1. Database Connectivity Check on site_cms_store
     const { data: dbData, error: dbError } = await supabase
       .from('site_cms_store')
       .select('id')
@@ -43,7 +42,6 @@ export async function getSupabaseStatus() {
 
     const dbSuccess = !dbError;
 
-    // 2. Storage Bucket Verification for website-media
     let storageSuccess = false;
     let storageMessage = "Bucket 'website-media' verified ✓";
 
@@ -52,7 +50,6 @@ export async function getSupabaseStatus() {
       if (!listErr && buckets && buckets.some(b => b.name === MEDIA_BUCKET)) {
         storageSuccess = true;
       } else {
-        // Fallback read test on website-media bucket
         const { error: bucketReadErr } = await supabase.storage.from(MEDIA_BUCKET).list('', { limit: 1 });
         if (!bucketReadErr) {
           storageSuccess = true;
@@ -117,10 +114,7 @@ export async function saveCMSDataToSupabase(state) {
   const authenticated = user ? "YES" : "NO";
 
   try {
-    // Clean input state object to eliminate non-serializable fields
     const cleanInputState = JSON.parse(JSON.stringify(state));
-
-    // Fetch existing cloud state to ensure deep JSON key preservation
     const existingCloudData = await fetchCMSDataFromSupabase();
 
     const mergedState = existingCloudData ? {
@@ -128,6 +122,7 @@ export async function saveCMSDataToSupabase(state) {
       ...cleanInputState,
       siteSettings: { ...(existingCloudData.siteSettings || {}), ...(cleanInputState.siteSettings || {}) },
       pages: { ...(existingCloudData.pages || {}), ...(cleanInputState.pages || {}) },
+      media: { ...(existingCloudData.media || {}), ...(cleanInputState.media || {}) },
       sectionMedia: { ...(existingCloudData.sectionMedia || {}), ...(cleanInputState.sectionMedia || {}) },
       mediaAssets: cleanInputState.mediaAssets || existingCloudData.mediaAssets || [],
       projects: cleanInputState.projects || existingCloudData.projects || [],
@@ -173,6 +168,37 @@ error hint: NONE`);
     console.error("Supabase save operation exception:", e);
     throw e;
   }
+}
+
+/**
+ * Subscribe to Live Postgres Changes on site_cms_store
+ */
+export function subscribeToCMSRealtime(onStateChange) {
+  if (!isSupabaseConfigured || !supabase) return () => {};
+
+  const channel = supabase
+    .channel('project-buddy-public-cms')
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'site_cms_store',
+        filter: `id=eq.${CMS_STORE_ID}`
+      },
+      (payload) => {
+        if (payload?.new?.state) {
+          onStateChange(payload.new.state);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(channel);
+    } catch (e) {}
+  };
 }
 
 /**
@@ -281,7 +307,7 @@ export function extractVideoMetadata(file) {
  * Direct File Upload to Supabase Storage Bucket 'website-media'
  */
 export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
-  const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|webm|mov)$/i);
+  const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
   
   const meta = isVideo
     ? await extractVideoMetadata(file)
@@ -312,7 +338,6 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
       throw new Error("Your authenticated account is not registered as a CMS administrator.");
     }
 
-    // Direct Upload strictly to MEDIA_BUCKET ('website-media')
     const { data, error } = await supabase.storage
       .from(MEDIA_BUCKET)
       .upload(storagePath, file, {

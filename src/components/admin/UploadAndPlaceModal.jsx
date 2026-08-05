@@ -19,8 +19,9 @@ export default function UploadAndPlaceModal({
   const [selectedSection, setSelectedSection] = useState(initialSection);
   const [selectedSlot, setSelectedSlot] = useState(initialSlot);
 
-  // File Upload & Progress State
+  // File Upload & Pending Media State
   const [selectedFile, setSelectedFile] = useState(null);
+  const [pendingMedia, setPendingMedia] = useState(null);
   const [fileMetadata, setFileMetadata] = useState(null);
   const [uploadStatus, setUploadStatus] = useState('idle'); // 'idle' | 'uploading' | 'processing' | 'ready' | 'error'
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -52,13 +53,22 @@ export default function UploadAndPlaceModal({
     }
   }, [selectedPage, selectedSection]);
 
+  // Clean up object URLs on component unmount or when pendingMedia changes
+  useEffect(() => {
+    return () => {
+      if (pendingMedia?.previewUrl) {
+        URL.revokeObjectURL(pendingMedia.previewUrl);
+      }
+    };
+  }, [pendingMedia]);
+
   // Check placement conflict
   useEffect(() => {
     const state = getCMSState();
     const key = `${selectedPage}:${selectedSection}:${selectedSlot}`;
     const existing = state.sectionMedia?.[key];
     if (existing && existing.desktopMediaId) {
-      const existingAsset = state.mediaAssets.find(m => m.id === existing.desktopMediaId);
+      const existingAsset = state.mediaAssets?.find(m => m.id === existing.desktopMediaId);
       if (existingAsset && assetToAssign && existingAsset.id !== assetToAssign.id) {
         setConflictWarning(`This slot currently contains "${existingAsset.name}". Publishing will replace its placement.`);
       } else {
@@ -74,13 +84,27 @@ export default function UploadAndPlaceModal({
   const handleFileSelect = async (file) => {
     if (!file) return;
 
-    // Validate size limit (50MB max for cinematic web videos)
     const maxMB = 50;
     if (file.size > maxMB * 1024 * 1024) {
       setErrorMsg(`File exceeds the maximum limit of ${maxMB} MB. Please optimize your media file.`);
       return;
     }
 
+    // Create temporary local blob preview URL for immediate Admin preview (Revoked on change/unmount)
+    const blobUrl = URL.createObjectURL(file);
+    const isVid = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
+
+    const newPending = {
+      file,
+      previewUrl: blobUrl,
+      type: isVid ? 'video' : 'image'
+    };
+
+    if (pendingMedia?.previewUrl) {
+      URL.revokeObjectURL(pendingMedia.previewUrl);
+    }
+
+    setPendingMedia(newPending);
     setErrorMsg('');
     setSelectedFile(file);
     setUploadStatus('uploading');
@@ -120,22 +144,22 @@ export default function UploadAndPlaceModal({
   };
 
   const handlePublish = async () => {
-    if (!fileMetadata && !assetToAssign) return;
+    if (!fileMetadata && !assetToAssign) {
+      alert("Please wait for file upload to complete before publishing.");
+      return;
+    }
 
     const targetAsset = fileMetadata || assetToAssign;
-    let state = getCMSState();
+    let currentState = getCMSState();
 
     try {
-      // 1. Add asset to state if new
-      if (fileMetadata) {
-        state = {
-          ...state,
-          mediaAssets: [fileMetadata, ...state.mediaAssets]
+      if (fileMetadata && !currentState.mediaAssets?.some(m => m.id === fileMetadata.id)) {
+        currentState = {
+          ...currentState,
+          mediaAssets: [fileMetadata, ...(currentState.mediaAssets || [])]
         };
-        await saveCMSState(state);
       }
 
-      // 2. Save placement in database/CMS store
       if (mode === 'place') {
         await assignMediaToSlot(
           selectedPage,
@@ -143,8 +167,11 @@ export default function UploadAndPlaceModal({
           selectedSlot,
           deviceTarget === 'mobile' ? '' : targetAsset.id,
           deviceTarget === 'mobile' ? targetAsset.id : '',
-          fitMode
+          fitMode,
+          targetAsset
         );
+      } else {
+        await saveCMSState(currentState);
       }
 
       onClose();
@@ -233,7 +260,6 @@ export default function UploadAndPlaceModal({
               </div>
             </div>
 
-            {/* Destination Confirmation Card */}
             <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-200 text-xs space-y-1">
               <div className="font-mono text-blue-500 font-semibold uppercase">TARGET PLACEMENT DESTINATION</div>
               <div className="text-base font-extrabold text-[#0B132B]">
@@ -264,7 +290,6 @@ export default function UploadAndPlaceModal({
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-[#0B132B]">STEP 2: CHOOSE FILE DIRECTLY FROM COMPUTER / PHONE</h3>
 
-            {/* Drag and Drop Box */}
             <div
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -297,14 +322,12 @@ export default function UploadAndPlaceModal({
               </div>
             </div>
 
-            {/* Error Message */}
             {errorMsg && (
               <div className="p-3 rounded-xl bg-red-50 text-red-700 text-xs border border-red-200">
                 {errorMsg}
               </div>
             )}
 
-            {/* Real-time Progress Bar */}
             {uploadStatus === 'uploading' && (
               <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 space-y-2">
                 <div className="flex items-center justify-between text-xs font-mono text-[#0052FF]">
@@ -323,7 +346,6 @@ export default function UploadAndPlaceModal({
               </div>
             )}
 
-            {/* Metadata Extraction Readout */}
             {uploadStatus === 'ready' && fileMetadata && (
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
                 <div className="flex items-center justify-between font-bold text-emerald-800">
@@ -347,7 +369,7 @@ export default function UploadAndPlaceModal({
                 ← Back
               </button>
               <button
-                disabled={uploadStatus !== 'ready' && !assetToAssign}
+                disabled={uploadStatus !== 'ready' && !assetToAssign && !pendingMedia}
                 onClick={() => setStep(3)}
                 className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] disabled:opacity-50"
               >
@@ -435,12 +457,33 @@ export default function UploadAndPlaceModal({
             {/* Live Responsive Preview Box */}
             <div className="bg-slate-900 p-6 rounded-2xl flex items-center justify-center min-h-[300px]">
               <div style={{ width: `${previewViewport}px`, maxWidth: '100%' }} className="mx-auto transition-all">
-                <SmartMedia
-                  src={fileMetadata ? fileMetadata.url : (assetToAssign ? assetToAssign.url : '')}
-                  type={fileMetadata ? fileMetadata.type : (assetToAssign ? assetToAssign.type : 'image')}
-                  fit={fitMode}
-                  aspectRatio={fileMetadata?.aspectRatio || "16/9"}
-                />
+                {pendingMedia ? (
+                  <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-[#0B132B] shadow-xl aspect-video">
+                    {pendingMedia.type === 'video' ? (
+                      <video
+                        src={pendingMedia.previewUrl}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        className="w-full h-full object-contain pointer-events-none"
+                      />
+                    ) : (
+                      <img
+                        src={pendingMedia.previewUrl}
+                        alt="Pending Media Preview"
+                        className="w-full h-full object-contain"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <SmartMedia
+                    src={fileMetadata ? fileMetadata.url : (assetToAssign ? assetToAssign.url : '')}
+                    type={fileMetadata ? fileMetadata.type : (assetToAssign ? assetToAssign.type : 'image')}
+                    fit={fitMode}
+                    aspectRatio={fileMetadata?.aspectRatio || "16/9"}
+                  />
+                )}
               </div>
             </div>
 
@@ -450,7 +493,8 @@ export default function UploadAndPlaceModal({
               </button>
               <button
                 onClick={handlePublish}
-                className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] shadow-md flex items-center gap-2"
+                disabled={!fileMetadata && !assetToAssign && !pendingMedia}
+                className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] shadow-md flex items-center gap-2 disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
                 <span>Publish to Selected Website Slot</span>
