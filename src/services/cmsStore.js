@@ -1,10 +1,16 @@
 /**
- * Project Buddy CMS Store Service v3.2 — Production Persistence & Realtime Verification Engine
+ * Project Buddy CMS Store Service v3.3 — Production Persistence & Realtime Verification Engine
  * Restricts localStorage fallback strictly to local development mode.
  * In production, saving/publishing requires a successful, verified write to Supabase Database.
  */
 
-import { fetchCMSDataFromSupabase, saveCMSDataToSupabase, isSupabaseConfigured, CMS_STORE_ID } from './supabaseClient';
+import {
+  fetchCMSDataFromSupabase,
+  saveCMSDataToSupabase,
+  loadMediaLibraryFromStorage,
+  isSupabaseConfigured,
+  CMS_STORE_ID
+} from './supabaseClient';
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
@@ -237,6 +243,7 @@ export function updateInMemCMSState(cloudState) {
     pages: { ...defaultState.pages, ...(cloudState.pages || {}) },
     media: { ...defaultState.media, ...(cloudState.media || {}) },
     sectionMedia: { ...defaultState.sectionMedia, ...(cloudState.sectionMedia || {}) },
+    mediaAssets: cloudState.mediaAssets || defaultState.mediaAssets,
   };
 
   if (import.meta.env.DEV) {
@@ -248,13 +255,30 @@ export function updateInMemCMSState(cloudState) {
   window.dispatchEvent(new Event('cms-state-updated'));
 }
 
+/**
+ * Hydrates published state from Supabase Database & discovers all storage assets directly from website-media
+ */
 export async function hydrateCMSFromCloud() {
   const cloudData = await fetchCMSDataFromSupabase();
-  if (cloudData) {
-    updateInMemCMSState(cloudData);
-    return cloudData;
+  const storageAssets = await loadMediaLibraryFromStorage();
+
+  const currentDbState = cloudData || getCMSState();
+
+  // Combine Discovered Storage Assets with existing state.mediaAssets
+  let combinedAssets = storageAssets;
+  if (currentDbState?.mediaAssets) {
+    const storagePaths = new Set(storageAssets.map(a => a.storagePath));
+    const legacyOrCustom = currentDbState.mediaAssets.filter(a => !a.storagePath || !storagePaths.has(a.storagePath));
+    combinedAssets = [...storageAssets, ...legacyOrCustom];
   }
-  return getCMSState();
+
+  const updatedState = {
+    ...currentDbState,
+    mediaAssets: combinedAssets
+  };
+
+  updateInMemCMSState(updatedState);
+  return updatedState;
 }
 
 /**
@@ -272,42 +296,22 @@ export async function saveCMSState(newState) {
   }
 
   if (isSupabaseConfigured) {
-    // 1. Await database write confirmation (UPSERT)
-    const writtenState = await saveCMSDataToSupabase(updatedState);
-    if (!writtenState) {
-      throw new Error("Supabase Cloud Database write failed. Check connectivity, credentials or RLS policies.");
+    // 1. Execute DB UPDATE and fresh SELECT verification in saveCMSDataToSupabase
+    const verifiedState = await saveCMSDataToSupabase(updatedState);
+    if (!verifiedState) {
+      throw new Error("STAGE: CMS UPDATE | TABLE: site_cms_store | OPERATION: UPDATE | CODE: WRITE_FAILED | MESSAGE: Supabase Cloud Database update failed.");
     }
 
-    // 2. Perform a fresh verification SELECT from the exact same row (CMS_STORE_ID)
-    const verifiedData = await fetchCMSDataFromSupabase();
-    if (!verifiedData) {
-      throw new Error("Supabase fresh SELECT verification failed. Database returned no record for row: " + CMS_STORE_ID);
-    }
+    // Refresh discovered storage assets into final state
+    const storageAssets = await loadMediaLibraryFromStorage();
+    const storagePaths = new Set(storageAssets.map(a => a.storagePath));
+    const customAssets = (verifiedState.mediaAssets || []).filter(a => !a.storagePath || !storagePaths.has(a.storagePath));
 
-    // 3. Structural comparison
-    const isSettingsMatch = JSON.stringify(verifiedData.siteSettings || {}) === JSON.stringify(writtenState.siteSettings || {});
-    const isPagesMatch = JSON.stringify(verifiedData.pages || {}) === JSON.stringify(writtenState.pages || {});
-    const isSectionMediaMatch = JSON.stringify(verifiedData.sectionMedia || {}) === JSON.stringify(writtenState.sectionMedia || {});
-    
-    const writtenAssets = writtenState.mediaAssets || [];
-    const verifiedAssets = verifiedData.mediaAssets || [];
-    const isAssetCountMatch = writtenAssets.length === verifiedAssets.length;
-
-    if (!isSettingsMatch || !isPagesMatch || !isSectionMediaMatch || !isAssetCountMatch) {
-      console.warn("Structural verification notice - checking specific asset match...");
-      if (writtenAssets.length > 0 && verifiedAssets.length > 0) {
-        const latestWritten = writtenAssets[0];
-        const verifiedMatch = verifiedAssets.find(a => a.id === latestWritten.id);
-        if (latestWritten.url && (!verifiedMatch || verifiedMatch.url !== latestWritten.url)) {
-          throw new Error("Supabase fresh SELECT verification failed. Persisted record mismatch.");
-        }
-      }
-    }
-
-    // Authoritative update from fresh database SELECT result
-    activeCMSState = verifiedData;
+    activeCMSState = {
+      ...verifiedState,
+      mediaAssets: [...storageAssets, ...customAssets]
+    };
   } else {
-    // Local dev offline fallback
     activeCMSState = updatedState;
   }
 
@@ -519,8 +523,8 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
     }
   };
 
-  await saveCMSState(newState);
-  return newState;
+  const verifiedState = await saveCMSState(newState);
+  return verifiedState;
 }
 
 /**

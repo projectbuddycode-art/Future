@@ -80,6 +80,65 @@ export async function getSupabaseStatus() {
 }
 
 /**
+ * Dynamically Load Discovered Media Library Assets directly from Supabase Storage
+ */
+export async function loadMediaLibraryFromStorage() {
+  if (!isSupabaseConfigured || !supabase) return [];
+
+  const foldersToScan = ['', 'home/hero-bg', 'home/workingSystem', 'general', 'home', 'services', 'systems', 'about'];
+  const discoveredAssets = [];
+  const seenPaths = new Set();
+
+  for (const folder of foldersToScan) {
+    try {
+      const { data: files, error } = await supabase.storage
+        .from(MEDIA_BUCKET)
+        .list(folder, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+
+      if (error || !files) continue;
+
+      for (const file of files) {
+        if (!file.name || file.name === '.emptyFolderPlaceholder') continue;
+
+        const storagePath = folder ? `${folder}/${file.name}` : file.name;
+        if (seenPaths.has(storagePath)) continue;
+        seenPaths.add(storagePath);
+
+        const isVid = Boolean(file.name.match(/\.(mp4|webm|mov)$/i)) || (file.metadata?.mimetype && file.metadata.mimetype.startsWith('video/'));
+        const isImg = Boolean(file.name.match(/\.(jpg|jpeg|png|webp|avif|gif|svg)$/i)) || (file.metadata?.mimetype && file.metadata.mimetype.startsWith('image/'));
+
+        if (!isVid && !isImg) continue;
+
+        const { data: publicData } = supabase.storage
+          .from(MEDIA_BUCKET)
+          .getPublicUrl(storagePath);
+
+        const publicUrl = publicData?.publicUrl || '';
+
+        discoveredAssets.push({
+          id: `media_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          name: file.name,
+          url: publicUrl,
+          bucket: MEDIA_BUCKET,
+          storagePath: storagePath,
+          type: isVid ? 'video' : 'image',
+          mimeType: file.metadata?.mimetype || (isVid ? 'video/mp4' : 'image/jpeg'),
+          createdAt: file.created_at || new Date().toISOString(),
+          fileSize: file.metadata?.size ? `${(file.metadata.size / (1024 * 1024)).toFixed(2)} MB` : 'Asset',
+          aspectRatio: "16/9",
+          fit: "contain",
+          alt: file.name
+        });
+      }
+    } catch (err) {
+      console.warn(`Storage list error for folder [${folder}]:`, err);
+    }
+  }
+
+  return discoveredAssets;
+}
+
+/**
  * Fetch Full CMS State from Supabase Database
  */
 export async function fetchCMSDataFromSupabase() {
@@ -230,17 +289,88 @@ export function subscribeToCMSRealtime(onStateChange) {
 }
 
 /**
- * Inspect All Rows in site_cms_store
+ * Direct File Upload to Supabase Storage Bucket 'website-media'
  */
-export async function inspectCMSStoreRows() {
-  if (!isSupabaseConfigured || !supabase) return [];
-  try {
-    const { data, error } = await supabase.from('site_cms_store').select('id, updated_at');
-    if (error || !data) return [];
-    return data;
-  } catch (e) {
-    return [];
+export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
+  const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
+  
+  const meta = isVideo
+    ? await extractVideoMetadata(file)
+    : await extractImageMetadata(file);
+
+  if (onProgress) onProgress(25, "Uploading to storage...");
+
+  let publicUrl = "";
+  const safeFilename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  const storagePath = `${folderPath}/${safeFilename}`;
+
+  if (isSupabaseConfigured && supabase) {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (!session || !user) {
+      throw new Error("Supabase storage upload failed: Session is unauthenticated.");
+    }
+
+    const { data: adminRecord, error: adminError } = await supabase
+      .from('admin_users')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    if (adminError || !adminRecord) {
+      console.warn("CMS Admin Record Verification Failure:", adminError?.message);
+      throw new Error("Your authenticated account is not registered as a CMS administrator.");
+    }
+
+    const { data, error } = await supabase.storage
+      .from(MEDIA_BUCKET)
+      .upload(storagePath, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (error) {
+      console.error("Supabase Storage Upload Error:", error);
+      throw new Error(`Supabase Storage Error: ${error.message}`);
+    }
+
+    if (onProgress) onProgress(75, "Processing metadata...");
+
+    const { data: publicData } = supabase.storage
+      .from(MEDIA_BUCKET)
+      .getPublicUrl(storagePath);
+
+    publicUrl = publicData.publicUrl;
+  } else {
+    if (onProgress) onProgress(65, "Generating local asset payload...");
+    
+    publicUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
   }
+
+  if (onProgress) onProgress(100, "Ready to Publish");
+
+  return {
+    id: `media_${Date.now()}`,
+    name: file.name,
+    url: publicUrl,
+    bucket: MEDIA_BUCKET,
+    storagePath,
+    type: meta.mediaType,
+    width: meta.width,
+    height: meta.height,
+    aspectRatio: meta.aspectRatio,
+    fileSize: meta.fileSize,
+    mimeType: meta.mimeType,
+    fit: 'contain',
+    focalPoint: { x: 50, y: 50 },
+    alt: file.name,
+    createdAt: new Date().toISOString()
+  };
 }
 
 /**
@@ -329,88 +459,4 @@ export function extractVideoMetadata(file) {
 
     video.src = url;
   });
-}
-
-/**
- * Direct File Upload to Supabase Storage Bucket 'website-media'
- */
-export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
-  const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov)$/i));
-  
-  const meta = isVideo
-    ? await extractVideoMetadata(file)
-    : await extractImageMetadata(file);
-
-  if (onProgress) onProgress(25, "Uploading to storage...");
-
-  let publicUrl = "";
-  const safeFilename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-  const storagePath = `${folderPath}/${safeFilename}`;
-
-  if (isSupabaseConfigured && supabase) {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (!session || !user) {
-      throw new Error("Supabase storage upload failed: Session is unauthenticated.");
-    }
-
-    const { data: adminRecord, error: adminError } = await supabase
-      .from('admin_users')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    if (adminError || !adminRecord) {
-      console.warn("CMS Admin Record Verification Failure:", adminError?.message);
-      throw new Error("Your authenticated account is not registered as a CMS administrator.");
-    }
-
-    const { data, error } = await supabase.storage
-      .from(MEDIA_BUCKET)
-      .upload(storagePath, file, {
-        cacheControl: '3600',
-        upsert: true
-      });
-
-    if (error) {
-      console.error("Supabase Storage Upload Error:", error);
-      throw new Error(`Supabase Storage Error: ${error.message}`);
-    }
-
-    if (onProgress) onProgress(75, "Processing metadata...");
-
-    const { data: publicData } = supabase.storage
-      .from(MEDIA_BUCKET)
-      .getPublicUrl(storagePath);
-
-    publicUrl = publicData.publicUrl;
-  } else {
-    if (onProgress) onProgress(65, "Generating local asset payload...");
-    
-    publicUrl = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  if (onProgress) onProgress(100, "Ready to Publish");
-
-  return {
-    id: `media_${Date.now()}`,
-    name: file.name,
-    url: publicUrl,
-    storagePath,
-    type: meta.mediaType,
-    width: meta.width,
-    height: meta.height,
-    aspectRatio: meta.aspectRatio,
-    fileSize: meta.fileSize,
-    mimeType: meta.mimeType,
-    fit: 'contain',
-    focalPoint: { x: 50, y: 50 },
-    alt: file.name,
-    createdAt: new Date().toISOString()
-  };
 }
