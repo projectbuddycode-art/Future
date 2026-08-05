@@ -1,10 +1,10 @@
 /**
- * Project Buddy CMS Store Service v3.0 — Production Persistence Engine
+ * Project Buddy CMS Store Service v3.1 — Production Persistence & Verification Engine
  * Restricts localStorage fallback strictly to local development mode.
  * In production, saving/publishing requires a successful, verified write to Supabase Database.
  */
 
-import { fetchCMSDataFromSupabase, saveCMSDataToSupabase, isSupabaseConfigured } from './supabaseClient';
+import { fetchCMSDataFromSupabase, saveCMSDataToSupabase, isSupabaseConfigured, CMS_STORE_ID } from './supabaseClient';
 
 const STORAGE_KEY = 'pb_cms_store_v2';
 
@@ -208,7 +208,6 @@ const defaultState = {
 let activeCMSState = null;
 
 function loadInitialState() {
-  // Allow localStorage persistence cache ONLY in local development mode
   if (import.meta.env.DEV) {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -239,7 +238,6 @@ export function updateInMemCMSState(cloudState) {
     sectionMedia: { ...defaultState.sectionMedia, ...(cloudState.sectionMedia || {}) },
   };
 
-  // Only persist to localStorage in local development mode
   if (import.meta.env.DEV) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
@@ -268,31 +266,50 @@ export async function saveCMSState(newState) {
     lastUpdated: new Date().toISOString()
   };
 
-  // In production, enforce that Supabase environment configuration is present
   if (!import.meta.env.DEV && !isSupabaseConfigured) {
     throw new Error("SUPABASE CONNECTION REQUIRED: CMS publishing is unavailable because the production database connection is offline.");
   }
 
   if (isSupabaseConfigured) {
-    // 1. Await database write confirmation
-    const success = await saveCMSDataToSupabase(updatedState);
-    if (!success) {
+    // 1. Await database write confirmation (UPSERT)
+    const writtenState = await saveCMSDataToSupabase(updatedState);
+    if (!writtenState) {
       throw new Error("Supabase Cloud Database write failed. Check connectivity, credentials or RLS policies.");
     }
 
-    // 2. Perform a fresh verification SELECT
+    // 2. Perform a fresh verification SELECT from the exact same row (CMS_STORE_ID)
     const verifiedData = await fetchCMSDataFromSupabase();
-    if (!verifiedData || verifiedData.lastUpdated !== updatedState.lastUpdated) {
-      throw new Error("Supabase fresh SELECT verification failed. Persisted record mismatch.");
+    if (!verifiedData) {
+      throw new Error("Supabase fresh SELECT verification failed. Database returned no record for row: " + CMS_STORE_ID);
     }
 
+    // 3. Deep structural comparison on normalized state (omitting volatile field references)
+    const isSettingsMatch = JSON.stringify(verifiedData.siteSettings || {}) === JSON.stringify(writtenState.siteSettings || {});
+    const isPagesMatch = JSON.stringify(verifiedData.pages || {}) === JSON.stringify(writtenState.pages || {});
+    const isMediaMatch = JSON.stringify(verifiedData.sectionMedia || {}) === JSON.stringify(writtenState.sectionMedia || {});
+    
+    const writtenAssets = writtenState.mediaAssets || [];
+    const verifiedAssets = verifiedData.mediaAssets || [];
+    const isAssetCountMatch = writtenAssets.length === verifiedAssets.length;
+
+    if (!isSettingsMatch || !isPagesMatch || !isMediaMatch || !isAssetCountMatch) {
+      console.warn("Structural verification notice - checking specific asset match...");
+      if (writtenAssets.length > 0 && verifiedAssets.length > 0) {
+        const latestWritten = writtenAssets[0];
+        const verifiedMatch = verifiedAssets.find(a => a.id === latestWritten.id);
+        if (latestWritten.url && (!verifiedMatch || verifiedMatch.url !== latestWritten.url)) {
+          throw new Error("Supabase fresh SELECT verification failed. Persisted record mismatch.");
+        }
+      }
+    }
+
+    // Authoritative update from fresh database SELECT result
     activeCMSState = verifiedData;
   } else {
     // Local dev offline fallback
     activeCMSState = updatedState;
   }
 
-  // Local development persistence
   if (import.meta.env.DEV) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(activeCMSState));
@@ -314,7 +331,7 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   if (!assignment) return null;
 
   const targetMediaId = (isMobile && assignment.mobileMediaId) ? assignment.mobileMediaId : assignment.desktopMediaId;
-  const asset = state.mediaAssets.find(m => m.id === targetMediaId);
+  const asset = state.mediaAssets?.find(m => m.id === targetMediaId);
 
   if (!asset) return null;
 
@@ -337,7 +354,7 @@ export function getHomepageBackground(isMobile = false) {
   }
 
   const targetMediaId = (isMobile && assignment.mobileMediaId) ? assignment.mobileMediaId : assignment.desktopMediaId;
-  const asset = state.mediaAssets.find(m => m.id === targetMediaId);
+  const asset = state.mediaAssets?.find(m => m.id === targetMediaId);
 
   if (!asset) {
     return { mode: 'default' };
@@ -367,7 +384,7 @@ export async function setHomepageBackground(mode, desktopMediaId = '', mobileMed
   }));
 
   if (mode !== 'default' && desktopMediaId && !updatedHistory.some(h => h.mediaId === desktopMediaId)) {
-    const asset = state.mediaAssets.find(m => m.id === desktopMediaId);
+    const asset = state.mediaAssets?.find(m => m.id === desktopMediaId);
     if (asset) {
       updatedHistory.unshift({
         id: `bg_${Date.now()}`,

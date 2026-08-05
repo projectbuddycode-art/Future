@@ -5,6 +5,9 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+export const MEDIA_BUCKET = 'website-media';
+export const CMS_STORE_ID = 'main_cms_state';
+
 // Centralized single Supabase client with persistent Auth session enabled
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
@@ -17,27 +20,56 @@ export const supabase = isSupabaseConfigured
   : null;
 
 /**
- * Get Supabase Connection Status
+ * Get Supabase Connection & Bucket Status
  */
 export async function getSupabaseStatus() {
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseConfigured || !supabase) {
     return {
       connected: false,
       auth: false,
       storage: false,
       database: false,
-      message: "VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not configured in Vercel env. Using local engine fallback."
+      message: "VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not configured."
     };
   }
 
   try {
-    const { data, error } = await supabase.from('site_cms_store').select('id').limit(1);
+    // 1. Database Connectivity Check on site_cms_store
+    const { data: dbData, error: dbError } = await supabase
+      .from('site_cms_store')
+      .select('id')
+      .eq('id', CMS_STORE_ID)
+      .limit(1);
+
+    const dbSuccess = !dbError;
+
+    // 2. Storage Bucket Verification for website-media
+    let storageSuccess = false;
+    let storageMessage = "Bucket 'website-media' verified ✓";
+
+    try {
+      const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
+      if (!listErr && buckets && buckets.some(b => b.name === MEDIA_BUCKET)) {
+        storageSuccess = true;
+      } else {
+        // Fallback read test on website-media bucket
+        const { error: bucketReadErr } = await supabase.storage.from(MEDIA_BUCKET).list('', { limit: 1 });
+        if (!bucketReadErr) {
+          storageSuccess = true;
+        } else {
+          storageMessage = bucketReadErr?.message || listErr?.message || "Bucket website-media not found";
+        }
+      }
+    } catch (sErr) {
+      storageMessage = sErr.message;
+    }
+
     return {
-      connected: !error,
+      connected: dbSuccess && storageSuccess,
       auth: true,
-      storage: true,
-      database: !error,
-      message: error ? error.message : "Connected to Supabase Production."
+      storage: storageSuccess,
+      database: dbSuccess,
+      message: dbError ? dbError.message : (!storageSuccess ? storageMessage : "Connected to Supabase Production.")
     };
   } catch (err) {
     return {
@@ -59,18 +91,24 @@ export async function fetchCMSDataFromSupabase() {
   try {
     const { data, error } = await supabase
       .from('site_cms_store')
-      .select('state')
-      .eq('id', 'main_cms_state')
+      .select('id, state, updated_at')
+      .eq('id', CMS_STORE_ID)
       .single();
 
-    if (error || !data) return null;
+    if (error || !data) {
+      console.warn("Supabase CMS fetch error:", error);
+      return null;
+    }
     return data.state;
   } catch (e) {
-    console.warn("Supabase fetch failed, using cached state:", e);
+    console.warn("Supabase fetch exception:", e);
     return null;
   }
 }
 
+/**
+ * Write CMS State to Supabase Database via UPSERT
+ */
 export async function saveCMSDataToSupabase(state) {
   if (!isSupabaseConfigured || !supabase) return false;
 
@@ -79,9 +117,32 @@ export async function saveCMSDataToSupabase(state) {
   const authenticated = user ? "YES" : "NO";
 
   try {
+    // Clean input state object to eliminate non-serializable fields
+    const cleanInputState = JSON.parse(JSON.stringify(state));
+
+    // Fetch existing cloud state to ensure deep JSON key preservation
+    const existingCloudData = await fetchCMSDataFromSupabase();
+
+    const mergedState = existingCloudData ? {
+      ...existingCloudData,
+      ...cleanInputState,
+      siteSettings: { ...(existingCloudData.siteSettings || {}), ...(cleanInputState.siteSettings || {}) },
+      pages: { ...(existingCloudData.pages || {}), ...(cleanInputState.pages || {}) },
+      sectionMedia: { ...(existingCloudData.sectionMedia || {}), ...(cleanInputState.sectionMedia || {}) },
+      mediaAssets: cleanInputState.mediaAssets || existingCloudData.mediaAssets || [],
+      projects: cleanInputState.projects || existingCloudData.projects || [],
+      backgroundHistory: cleanInputState.backgroundHistory || existingCloudData.backgroundHistory || [],
+      lastUpdated: new Date().toISOString()
+    } : cleanInputState;
+
+    const finalCleanState = JSON.parse(JSON.stringify(mergedState));
+
     const { error } = await supabase
       .from('site_cms_store')
-      .upsert({ id: 'main_cms_state', state, updated_at: new Date().toISOString() });
+      .upsert(
+        { id: CMS_STORE_ID, state: finalCleanState, updated_at: new Date().toISOString() },
+        { onConflict: 'id' }
+      );
 
     if (error) {
       console.log(`CMS WRITE DEBUG
@@ -107,10 +168,24 @@ error message: NONE
 error details: NONE
 error hint: NONE`);
 
-    return true;
+    return finalCleanState;
   } catch (e) {
     console.error("Supabase save operation exception:", e);
     throw e;
+  }
+}
+
+/**
+ * Inspect All Rows in site_cms_store
+ */
+export async function inspectCMSStoreRows() {
+  if (!isSupabaseConfigured || !supabase) return [];
+  try {
+    const { data, error } = await supabase.from('site_cms_store').select('id, updated_at');
+    if (error || !data) return [];
+    return data;
+  } catch (e) {
+    return [];
   }
 }
 
@@ -219,25 +294,13 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
   const storagePath = `${folderPath}/${safeFilename}`;
 
   if (isSupabaseConfigured && supabase) {
-    // Audit current session immediately before storage upload
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    console.log("STORAGE AUTH DEBUG", {
-      session: session ? "YES" : "NO",
-      user: user ? "YES" : "NO",
-      userId: user?.id || "NONE",
-      userEmail: user?.email || "NONE",
-      sessionError: sessionError?.message || "NONE",
-      userError: userError?.message || "NONE",
-      bucket: "website-media"
-    });
 
     if (!session || !user) {
       throw new Error("Supabase storage upload failed: Session is unauthenticated.");
     }
 
-    // Verify Admin Database Record in public.admin_users using Auth UUID
     const { data: adminRecord, error: adminError } = await supabase
       .from('admin_users')
       .select('*')
@@ -249,8 +312,9 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
       throw new Error("Your authenticated account is not registered as a CMS administrator.");
     }
 
+    // Direct Upload strictly to MEDIA_BUCKET ('website-media')
     const { data, error } = await supabase.storage
-      .from('website-media')
+      .from(MEDIA_BUCKET)
       .upload(storagePath, file, {
         cacheControl: '3600',
         upsert: true
@@ -264,7 +328,7 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
     if (onProgress) onProgress(75, "Processing metadata...");
 
     const { data: publicData } = supabase.storage
-      .from('website-media')
+      .from(MEDIA_BUCKET)
       .getPublicUrl(storagePath);
 
     publicUrl = publicData.publicUrl;
