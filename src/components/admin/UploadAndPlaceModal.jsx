@@ -4,7 +4,7 @@ import { assignMediaToSlot, getCMSState, saveCMSState, hydrateCMSFromCloud } fro
 import { uploadDirectFileToSupabase, MEDIA_BUCKET } from '../../services/supabaseClient';
 import CmsMedia from '../CmsMedia';
 import { getMediaType } from '../../utils/cmsMedia';
-import { X, Upload, Check, Monitor, Tablet, Smartphone, AlertTriangle, FileVideo, FileImage, Loader2 } from 'lucide-react';
+import { X, Upload, Check, Monitor, Tablet, Smartphone, AlertTriangle, Link, FileVideo, FileImage, Loader2 } from 'lucide-react';
 
 export default function UploadAndPlaceModal({
   isOpen,
@@ -20,7 +20,10 @@ export default function UploadAndPlaceModal({
   const [selectedSection, setSelectedSection] = useState(initialSection);
   const [selectedSlot, setSelectedSlot] = useState(initialSlot);
 
-  // File Upload & Pending Media State
+  // Source Mode: 'file' | 'url'
+  const [sourceMode, setSourceMode] = useState('file');
+
+  // File Upload State
   const [selectedFile, setSelectedFile] = useState(null);
   const [pendingMedia, setPendingMedia] = useState(null);
   const [fileMetadata, setFileMetadata] = useState(null);
@@ -29,6 +32,11 @@ export default function UploadAndPlaceModal({
   const [progressText, setProgressText] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef(null);
+
+  // Manual URL Mode State
+  const [manualUrlInput, setManualUrlInput] = useState('');
+  const [manualTypeSelection, setManualTypeSelection] = useState('auto'); // 'auto' | 'video' | 'image'
+  const [manualAssetPayload, setManualAssetPayload] = useState(null);
 
   // Display Settings
   const [fitMode, setFitMode] = useState('contain');
@@ -54,7 +62,6 @@ export default function UploadAndPlaceModal({
     }
   }, [selectedPage, selectedSection]);
 
-  // Clean up object URLs on component unmount or when pendingMedia changes
   useEffect(() => {
     return () => {
       if (pendingMedia?.previewUrl) {
@@ -87,7 +94,7 @@ export default function UploadAndPlaceModal({
 
     const maxMB = 50;
     if (file.size > maxMB * 1024 * 1024) {
-      setErrorMsg(`File exceeds the maximum limit of ${maxMB} MB. Please optimize your media file.`);
+      setErrorMsg(`File exceeds maximum limit of ${maxMB} MB.`);
       return;
     }
 
@@ -132,37 +139,73 @@ export default function UploadAndPlaceModal({
     }
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
+  const handleManualUrlSubmit = (inputUrl) => {
+    const trimmed = inputUrl.trim();
+    if (!trimmed) {
+      setManualAssetPayload(null);
+      return;
     }
+
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      setErrorMsg('Please enter a valid URL starting with https://');
+      setManualAssetPayload(null);
+      return;
+    }
+
+    setErrorMsg('');
+
+    let resolvedType = manualTypeSelection;
+    if (manualTypeSelection === 'auto') {
+      resolvedType = getMediaType({ url: trimmed });
+    }
+
+    const urlParts = trimmed.split('/');
+    const filename = urlParts[urlParts.length - 1].split('?')[0] || 'External media';
+
+    const payload = {
+      id: `manual_${Date.now()}`,
+      source: "manual-url",
+      type: resolvedType,
+      url: trimmed,
+      storagePath: null,
+      bucket: null,
+      mimeType: resolvedType === 'video' ? 'video/mp4' : 'image/jpeg',
+      name: filename,
+      updatedAt: new Date().toISOString()
+    };
+
+    setManualAssetPayload(payload);
   };
 
   const handlePublish = async () => {
-    if (!fileMetadata && !assetToAssign && !pendingMedia) {
-      alert("Please choose a file or select an asset before publishing.");
-      return;
-    }
+    const targetAsset = sourceMode === 'url'
+      ? manualAssetPayload
+      : (fileMetadata || assetToAssign);
 
-    const targetAsset = fileMetadata || assetToAssign;
     if (!targetAsset || !targetAsset.url) {
-      alert("Please wait for file upload to complete before publishing.");
+      alert("Please upload a file or enter a valid Media URL before publishing.");
       return;
     }
-
-    let currentState = getCMSState();
 
     try {
-      // Step G: Construct Canonical Publish Object
-      const canonicalMediaObj = {
+      const isManual = targetAsset.source === 'manual-url' || !targetAsset.storagePath;
+
+      const canonicalMediaObj = isManual ? {
+        id: targetAsset.id || `manual_${Date.now()}`,
+        source: "manual-url",
+        type: getMediaType(targetAsset),
+        url: targetAsset.url.trim(),
+        storagePath: null,
+        bucket: null,
+        mimeType: targetAsset.mimeType || null,
+        name: targetAsset.name || "External media",
+        updatedAt: new Date().toISOString()
+      } : {
+        id: targetAsset.id || `media_${Date.now()}`,
+        source: "supabase-storage",
         type: getMediaType(targetAsset),
         bucket: MEDIA_BUCKET,
-        storagePath: targetAsset.storagePath || `${selectedPage}/${selectedSection}/${Date.now()}`,
+        storagePath: targetAsset.storagePath,
         url: targetAsset.url,
         mimeType: targetAsset.mimeType || (getMediaType(targetAsset) === 'video' ? 'video/mp4' : 'image/jpeg'),
         name: targetAsset.name,
@@ -174,8 +217,8 @@ export default function UploadAndPlaceModal({
           selectedPage,
           selectedSection,
           selectedSlot,
-          deviceTarget === 'mobile' ? '' : targetAsset.id,
-          deviceTarget === 'mobile' ? targetAsset.id : '',
+          deviceTarget === 'mobile' ? '' : canonicalMediaObj.id,
+          deviceTarget === 'mobile' ? canonicalMediaObj.id : '',
           fitMode,
           canonicalMediaObj
         );
@@ -188,7 +231,7 @@ export default function UploadAndPlaceModal({
           throw new Error(`STAGE: FRESH VERIFICATION | TABLE: site_cms_store | OPERATION: VERIFY | CODE: SLOT_NOT_FOUND | MESSAGE: Slot ${slotKey} was not verified in Supabase.`);
         }
       } else {
-        await saveCMSState(currentState);
+        await saveCMSState(getCMSState());
       }
 
       await hydrateCMSFromCloud();
@@ -200,10 +243,12 @@ export default function UploadAndPlaceModal({
     }
   };
 
-  // Determine active asset object for Step 4 Preview (Step F)
-  const activePreviewAsset = pendingMedia
-    ? { url: pendingMedia.previewUrl, type: pendingMedia.type, mimeType: pendingMedia.type === 'video' ? 'video/mp4' : 'image/jpeg' }
-    : (fileMetadata || assetToAssign);
+  // Determine active asset object for Step 4 Preview
+  const activePreviewAsset = sourceMode === 'url'
+    ? manualAssetPayload
+    : (pendingMedia
+        ? { url: pendingMedia.previewUrl, type: pendingMedia.type, mimeType: pendingMedia.type === 'video' ? 'video/mp4' : 'image/jpeg' }
+        : (fileMetadata || assetToAssign));
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -213,7 +258,7 @@ export default function UploadAndPlaceModal({
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
             <div className="text-xs font-mono font-bold text-[#0052FF] uppercase tracking-wider">
-              {mode === 'place' ? 'DIRECT SUPABASE MEDIA UPLOAD & PLACEMENT' : 'UPLOAD TO MEDIA LIBRARY'}
+              {mode === 'place' ? 'DIRECT MEDIA UPLOAD OR MANUAL URL PLACEMENT' : 'UPLOAD TO MEDIA LIBRARY'}
             </div>
             <h2 className="text-xl font-extrabold text-[#0B132B]">
               {mode === 'place' ? 'Upload & Place Visual Asset' : 'Upload Asset to Library'}
@@ -231,7 +276,7 @@ export default function UploadAndPlaceModal({
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs font-mono">
           <span className={step === 1 ? "font-bold text-[#0052FF]" : "text-slate-400"}>1. DESTINATION</span>
           <span>→</span>
-          <span className={step === 2 ? "font-bold text-[#0052FF]" : "text-slate-400"}>2. DIRECT CHOOSE FILE</span>
+          <span className={step === 2 ? "font-bold text-[#0052FF]" : "text-slate-400"}>2. CHOOSE SOURCE</span>
           <span>→</span>
           <span className={step === 3 ? "font-bold text-[#0052FF]" : "text-slate-400"}>3. DISPLAY SETTINGS</span>
           <span>→</span>
@@ -303,88 +348,165 @@ export default function UploadAndPlaceModal({
                 onClick={() => setStep(2)}
                 className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] shadow-md"
               >
-                Next: Direct File Upload →
+                Next: Select Media Source →
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 2: DIRECT UPLOAD DROPZONE */}
+        {/* STEP 2: SOURCE CHOSEN (UPLOAD FILE OR MANUAL MEDIA URL) */}
         {step === 2 && (
           <div className="space-y-4">
-            <h3 className="text-sm font-bold text-[#0B132B]">STEP 2: CHOOSE FILE DIRECTLY FROM COMPUTER / PHONE</h3>
-
-            <div
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
-              className="border-2 border-dashed border-slate-300 hover:border-[#0052FF] bg-slate-50 hover:bg-blue-50/40 rounded-2xl p-8 text-center cursor-pointer transition-all space-y-3"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*"
-                onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
-                className="hidden"
-              />
-
-              <div className="w-12 h-12 rounded-2xl bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center mx-auto">
-                <Upload className="w-6 h-6" />
-              </div>
-
-              <div>
-                <p className="text-sm font-bold text-[#0B132B]">
-                  Drop image or video here
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  or <span className="text-[#0052FF] font-semibold underline">CHOOSE FILE</span> from device storage
-                </p>
-              </div>
-
-              <div className="text-[11px] font-mono text-slate-400">
-                Images (.png, .jpg, .webp) & Videos (.mp4, .webm) supported up to 50 MB
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <h3 className="text-sm font-bold text-[#0B132B]">STEP 2: CHOOSE MEDIA SOURCE</h3>
+              
+              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+                <button
+                  onClick={() => { setSourceMode('file'); setErrorMsg(''); }}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${sourceMode === 'file' ? 'bg-[#0052FF] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  <Upload className="w-3.5 h-3.5 inline mr-1.5" />
+                  UPLOAD FILE
+                </button>
+                <button
+                  onClick={() => { setSourceMode('url'); setErrorMsg(''); }}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${sourceMode === 'url' ? 'bg-[#0052FF] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  <Link className="w-3.5 h-3.5 inline mr-1.5" />
+                  MEDIA URL
+                </button>
               </div>
             </div>
+
+            {/* SOURCE MODE A: FILE UPLOAD */}
+            {sourceMode === 'file' && (
+              <div className="space-y-4">
+                <div
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                  className="border-2 border-dashed border-slate-300 hover:border-[#0052FF] bg-slate-50 hover:bg-blue-50/40 rounded-2xl p-8 text-center cursor-pointer transition-all space-y-3"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
+                    className="hidden"
+                  />
+
+                  <div className="w-12 h-12 rounded-2xl bg-[#0052FF]/10 text-[#0052FF] flex items-center justify-center mx-auto">
+                    <Upload className="w-6 h-6" />
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-bold text-[#0B132B]">
+                      Drop image or video here
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      or <span className="text-[#0052FF] font-semibold underline">CHOOSE FILE</span> from device storage
+                    </p>
+                  </div>
+
+                  <div className="text-[11px] font-mono text-slate-400">
+                    Images (.png, .jpg, .webp) & Videos (.mp4, .webm) supported up to 50 MB
+                  </div>
+                </div>
+
+                {uploadStatus === 'uploading' && (
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-mono text-[#0052FF]">
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {progressText}
+                      </span>
+                      <span className="font-bold">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-blue-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#0052FF] transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {uploadStatus === 'ready' && fileMetadata && (
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
+                    <div className="flex items-center justify-between font-bold text-emerald-800">
+                      <span className="flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        File Uploaded to Supabase Storage
+                      </span>
+                      <span className="font-mono">{getMediaType(fileMetadata).toUpperCase()}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono text-slate-600">
+                      <div>FILE: {fileMetadata.name}</div>
+                      <div>PATH: {fileMetadata.storagePath}</div>
+                      <div>SIZE: {fileMetadata.fileSize}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SOURCE MODE B: MANUAL MEDIA URL INPUT (Requirements 4, 5, 6) */}
+            {sourceMode === 'url' && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                  <div>
+                    <label className="block text-xs font-mono font-semibold text-slate-700 mb-1">
+                      PASTE PUBLIC MEDIA URL (HTTPS)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://.../storage/v1/object/public/website-media/home/workingSystem/video.mp4"
+                      value={manualUrlInput}
+                      onChange={(e) => {
+                        setManualUrlInput(e.target.value);
+                        handleManualUrlSubmit(e.target.value);
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-[#0B132B] font-mono outline-none focus:border-[#0052FF]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-mono font-semibold text-slate-700 mb-1">
+                      MEDIA TYPE
+                    </label>
+                    <select
+                      value={manualTypeSelection}
+                      onChange={(e) => {
+                        setManualTypeSelection(e.target.value);
+                        if (manualUrlInput) handleManualUrlSubmit(manualUrlInput);
+                      }}
+                      className="w-full sm:w-60 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:border-[#0052FF]"
+                    >
+                      <option value="auto">Auto Detect (by extension)</option>
+                      <option value="video">Video (.mp4 / .webm / .mov)</option>
+                      <option value="image">Image (.png / .jpg / .webp)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {manualAssetPayload && (
+                  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
+                    <div className="flex items-center justify-between font-bold text-emerald-800">
+                      <span className="flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        Manual Media URL Verified
+                      </span>
+                      <span className="font-mono">{manualAssetPayload.type.toUpperCase()}</span>
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-600 truncate">
+                      URL: {manualAssetPayload.url}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {errorMsg && (
               <div className="p-3 rounded-xl bg-red-50 text-red-700 text-xs border border-red-200">
                 {errorMsg}
-              </div>
-            )}
-
-            {uploadStatus === 'uploading' && (
-              <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 space-y-2">
-                <div className="flex items-center justify-between text-xs font-mono text-[#0052FF]">
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {progressText}
-                  </span>
-                  <span className="font-bold">{uploadProgress}%</span>
-                </div>
-                <div className="w-full h-2 bg-blue-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#0052FF] transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {uploadStatus === 'ready' && fileMetadata && (
-              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-2">
-                <div className="flex items-center justify-between font-bold text-emerald-800">
-                  <span className="flex items-center gap-1.5">
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    File Metadata Extracted Successfully
-                  </span>
-                  <span className="font-mono">{getMediaType(fileMetadata).toUpperCase()}</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono text-slate-600">
-                  <div>FILE: {fileMetadata.name}</div>
-                  <div>DIMENSIONS: {fileMetadata.width}×{fileMetadata.height}</div>
-                  <div>RATIO: {fileMetadata.aspectRatio}</div>
-                  <div>SIZE: {fileMetadata.fileSize}</div>
-                </div>
               </div>
             )}
 
@@ -393,7 +515,7 @@ export default function UploadAndPlaceModal({
                 ← Back
               </button>
               <button
-                disabled={uploadStatus !== 'ready' && !assetToAssign && !pendingMedia}
+                disabled={sourceMode === 'file' ? (uploadStatus !== 'ready' && !assetToAssign && !pendingMedia) : !manualAssetPayload}
                 onClick={() => setStep(3)}
                 className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] disabled:opacity-50"
               >
@@ -478,7 +600,7 @@ export default function UploadAndPlaceModal({
               </div>
             </div>
 
-            {/* Live Responsive Preview Box using CmsMedia (Step F) */}
+            {/* Live Responsive Preview Box using CmsMedia */}
             <div className="bg-slate-900 p-6 rounded-2xl flex items-center justify-center min-h-[300px]">
               <div style={{ width: `${previewViewport}px`, maxWidth: '100%' }} className="mx-auto transition-all aspect-video relative overflow-hidden rounded-2xl">
                 <CmsMedia
@@ -494,7 +616,7 @@ export default function UploadAndPlaceModal({
               </button>
               <button
                 onClick={handlePublish}
-                disabled={!fileMetadata && !assetToAssign && !pendingMedia}
+                disabled={sourceMode === 'file' ? (!fileMetadata && !assetToAssign && !pendingMedia) : !manualAssetPayload}
                 className="px-6 py-2.5 rounded-xl bg-[#0052FF] text-white font-semibold text-xs hover:bg-[#0042CC] shadow-md flex items-center gap-2 disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />

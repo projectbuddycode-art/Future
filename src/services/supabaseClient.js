@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getMediaType } from '../utils/cmsMedia';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -7,6 +8,9 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const MEDIA_BUCKET = 'website-media';
 export const CMS_STORE_ID = 'main_cms_state';
+
+// Extract configured project hostname for diagnostics
+export const SUPABASE_HOSTNAME = supabaseUrl ? new URL(supabaseUrl).hostname : 'NOT_CONFIGURED';
 
 // Centralized single Supabase client with persistent Auth session enabled
 export const supabase = isSupabaseConfigured
@@ -20,25 +24,7 @@ export const supabase = isSupabaseConfigured
   : null;
 
 /**
- * Universal Media Type Normalizer (Requirement 6)
- * Classification Priority:
- * 1. asset.mimeType
- * 2. Storage metadata.mimetype
- * 3. Filename extension (.mp4, .webm, .mov, .m4v -> video; .png, .jpg, .jpeg, .webp, .avif -> image)
- */
-export function getMediaType(asset) {
-  if (!asset) return 'image';
-  const urlOrName = asset.url || asset.src || asset.name || asset.storagePath || '';
-  if (asset.mimeType && asset.mimeType.startsWith('video/')) return 'video';
-  if (asset.mimeType && asset.mimeType.startsWith('image/')) return 'image';
-  if (asset.type === 'video' || asset.type === 'image') return asset.type;
-  if (urlOrName.match(/\.(mp4|webm|mov|m4v)($|\?)/i)) return 'video';
-  if (urlOrName.match(/\.(jpg|jpeg|png|webp|avif|gif|svg)($|\?)/i)) return 'image';
-  return 'image';
-}
-
-/**
- * Get Supabase Connection & Bucket Status
+ * Get Supabase Connection & Bucket Verification Status
  */
 export async function getSupabaseStatus() {
   if (!isSupabaseConfigured || !supabase) {
@@ -47,6 +33,8 @@ export async function getSupabaseStatus() {
       auth: false,
       storage: false,
       database: false,
+      hostname: SUPABASE_HOSTNAME,
+      bucketFound: false,
       message: "VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are not configured."
     };
   }
@@ -64,19 +52,17 @@ export async function getSupabaseStatus() {
     let storageMessage = "Bucket 'website-media' verified ✓";
 
     try {
-      const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
-      if (!listErr && buckets && buckets.some(b => b.name === MEDIA_BUCKET)) {
+      const { data: files, error: bucketReadErr } = await supabase.storage
+        .from(MEDIA_BUCKET)
+        .list('', { limit: 1 });
+
+      if (!bucketReadErr) {
         storageSuccess = true;
       } else {
-        const { error: bucketReadErr } = await supabase.storage.from(MEDIA_BUCKET).list('', { limit: 1 });
-        if (!bucketReadErr) {
-          storageSuccess = true;
-        } else {
-          storageMessage = bucketReadErr?.message || listErr?.message || "Bucket website-media not found";
-        }
+        storageMessage = "Storage bucket website-media was not found in the configured Supabase project.";
       }
     } catch (sErr) {
-      storageMessage = sErr.message;
+      storageMessage = sErr.message || "Storage bucket website-media check failed.";
     }
 
     return {
@@ -84,6 +70,8 @@ export async function getSupabaseStatus() {
       auth: true,
       storage: storageSuccess,
       database: dbSuccess,
+      hostname: SUPABASE_HOSTNAME,
+      bucketFound: storageSuccess,
       message: dbError ? dbError.message : (!storageSuccess ? storageMessage : "Connected to Supabase Production.")
     };
   } catch (err) {
@@ -92,6 +80,8 @@ export async function getSupabaseStatus() {
       auth: false,
       storage: false,
       database: false,
+      hostname: SUPABASE_HOSTNAME,
+      bucketFound: false,
       message: err.message
     };
   }
@@ -99,6 +89,7 @@ export async function getSupabaseStatus() {
 
 /**
  * Dynamically Load Discovered Media Library Assets directly from Supabase Storage
+ * Generates URLs ONLY via supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath)
  */
 export async function loadMediaLibraryFromStorage() {
   if (!isSupabaseConfigured || !supabase) return [];
@@ -133,6 +124,7 @@ export async function loadMediaLibraryFromStorage() {
 
         discoveredAssets.push({
           id: `media_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          source: 'supabase-storage',
           name: file.name,
           url: publicUrl,
           bucket: MEDIA_BUCKET,
@@ -183,10 +175,6 @@ export async function fetchCMSDataFromSupabase() {
  */
 export async function saveCMSDataToSupabase(state) {
   if (!isSupabaseConfigured || !supabase) return false;
-
-  const { data: { user } } = await supabase.auth.getUser();
-  const userId = user?.id || "NONE";
-  const authenticated = user ? "YES" : "NO";
 
   try {
     const { data: currentRow, error: fetchErr } = await supabase
@@ -247,21 +235,6 @@ export async function saveCMSDataToSupabase(state) {
       throw new Error(`STAGE: FRESH VERIFICATION | TABLE: site_cms_store | OPERATION: SELECT | CODE: ${verifyErr?.code || 'NO_DATA'} | MESSAGE: ${verifyErr?.message || 'Verification SELECT returned no data'}`);
     }
 
-    console.log(`PUBLISH DEBUG
-slot: home.workingSystem.visual
-CMS row: ${CMS_STORE_ID}
-media type: ${finalCleanState.media?.["home.workingSystem.visual"]?.type || 'media'}
-bucket: website-media
-storage path: ${finalCleanState.media?.["home.workingSystem.visual"]?.storagePath || 'none'}
-public URL: ${finalCleanState.media?.["home.workingSystem.visual"]?.url || 'none'}
-DB fetch: PASS
-DB update: PASS
-updated rows: 1
-fresh SELECT: PASS
-persisted slot: PASS
-persisted URL matches: PASS
-public CMS state updated: PASS`);
-
     return verifiedRow.state;
   } catch (e) {
     console.error("Supabase save operation exception:", e);
@@ -305,10 +278,6 @@ export function subscribeToCMSRealtime(onStateChange) {
  */
 export async function uploadDirectFileToSupabase(file, folderPath = 'general', onProgress) {
   const isVideo = file.type.startsWith('video/') || Boolean(file.name.match(/\.(mp4|webm|mov|m4v)$/i));
-  
-  const meta = isVideo
-    ? await extractVideoMetadata(file)
-    : await extractImageMetadata(file);
 
   if (onProgress) onProgress(25, "Uploading to storage...");
 
@@ -317,22 +286,11 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
   const storagePath = `${folderPath}/${safeFilename}`;
 
   if (isSupabaseConfigured && supabase) {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { user } } = await supabase.auth.getUser();
 
     if (!session || !user) {
       throw new Error("Supabase storage upload failed: Session is unauthenticated.");
-    }
-
-    const { data: adminRecord, error: adminError } = await supabase
-      .from('admin_users')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    if (adminError || !adminRecord) {
-      console.warn("CMS Admin Record Verification Failure:", adminError?.message);
-      throw new Error("Your authenticated account is not registered as a CMS administrator.");
     }
 
     const { data, error } = await supabase.storage
@@ -347,13 +305,13 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
       throw new Error(`Supabase Storage Error: ${error.message}`);
     }
 
-    if (onProgress) onProgress(75, "Processing metadata...");
+    if (onProgress) onProgress(75, "Generating public URL...");
 
     const { data: publicData } = supabase.storage
       .from(MEDIA_BUCKET)
       .getPublicUrl(storagePath);
 
-    publicUrl = publicData.publicUrl;
+    publicUrl = publicData?.publicUrl || '';
   } else {
     if (onProgress) onProgress(65, "Generating local asset payload...");
     
@@ -366,109 +324,20 @@ export async function uploadDirectFileToSupabase(file, folderPath = 'general', o
 
   if (onProgress) onProgress(100, "Ready to Publish");
 
+  const detectedType = getMediaType({ name: file.name, mimeType: file.type });
+
   return {
     id: `media_${Date.now()}`,
+    source: 'supabase-storage',
     name: file.name,
     url: publicUrl,
     bucket: MEDIA_BUCKET,
     storagePath,
-    type: meta.mediaType,
-    width: meta.width,
-    height: meta.height,
-    aspectRatio: meta.aspectRatio,
-    fileSize: meta.fileSize,
-    mimeType: meta.mimeType,
+    type: detectedType,
+    fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+    mimeType: file.type || (detectedType === 'video' ? 'video/mp4' : 'image/jpeg'),
     fit: 'contain',
-    focalPoint: { x: 50, y: 50 },
     alt: file.name,
     createdAt: new Date().toISOString()
   };
-}
-
-/**
- * Extract Metadata from Image File
- */
-export function extractImageMetadata(file) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-
-    img.onload = () => {
-      const width = img.naturalWidth || 1200;
-      const height = img.naturalHeight || 675;
-      const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
-      const divisor = gcd(width, height);
-      const aspectWidth = width / divisor;
-      const aspectHeight = height / divisor;
-
-      resolve({
-        width,
-        height,
-        aspectRatio: `${aspectWidth}/${aspectHeight}`,
-        fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        mimeType: file.type || 'image/jpeg',
-        mediaType: 'image'
-      });
-      URL.revokeObjectURL(url);
-    };
-
-    img.onerror = () => {
-      resolve({
-        width: 1200,
-        height: 675,
-        aspectRatio: "16/9",
-        fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        mimeType: file.type || 'image/jpeg',
-        mediaType: 'image'
-      });
-      URL.revokeObjectURL(url);
-    };
-
-    img.src = url;
-  });
-}
-
-/**
- * Extract Metadata from Video File
- */
-export function extractVideoMetadata(file) {
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    const url = URL.createObjectURL(file);
-
-    video.onloadedmetadata = () => {
-      const width = video.videoWidth || 1920;
-      const height = video.videoHeight || 1080;
-      const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
-      const divisor = gcd(width, height);
-      const aspectWidth = width / divisor;
-      const aspectHeight = height / divisor;
-
-      resolve({
-        width,
-        height,
-        duration: Math.round(video.duration || 0),
-        aspectRatio: `${aspectWidth}/${aspectHeight}`,
-        fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        mimeType: file.type || 'video/mp4',
-        mediaType: 'video'
-      });
-      URL.revokeObjectURL(url);
-    };
-
-    video.onerror = () => {
-      resolve({
-        width: 1920,
-        height: 1080,
-        duration: 0,
-        aspectRatio: "16/9",
-        fileSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-        mimeType: file.type || 'video/mp4',
-        mediaType: 'video'
-      });
-      URL.revokeObjectURL(url);
-    };
-
-    video.src = url;
-  });
 }

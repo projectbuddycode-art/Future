@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import { getCMSState, saveCMSState, hydrateCMSFromCloud, deleteMediaAsset, getAssetPlacements, removeMediaFromSlot } from '../../services/cmsStore';
-import { getSupabaseStatus, CMS_STORE_ID } from '../../services/supabaseClient';
+import { getSupabaseStatus, CMS_STORE_ID, SUPABASE_HOSTNAME } from '../../services/supabaseClient';
 import { MEDIA_REGISTRY, getPlacementLabel } from '../../services/mediaRegistry';
 import UploadAndPlaceModal from '../../components/admin/UploadAndPlaceModal';
 import CmsMedia from '../../components/CmsMedia';
@@ -58,18 +58,24 @@ export default function AdminMedia() {
   };
 
   const handleDeleteAsset = async (asset) => {
-    if (!window.confirm(`Delete this media asset (${asset.name}) permanently from Supabase Storage?`)) {
+    const isManual = asset.source === 'manual-url' || !asset.storagePath;
+    const confirmMsg = isManual
+      ? `Remove manual URL reference (${asset.name}) from CMS?`
+      : `Delete media asset (${asset.name}) permanently from Supabase Storage?`;
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
     setDeletingId(asset.id);
     try {
-      await deleteMediaAsset(asset);
+      const res = await deleteMediaAsset(asset);
       setDeletingId(null);
       await refreshLibrary();
+      alert(res.message || "Asset deleted.");
     } catch (err) {
       console.error("Delete asset error:", err);
-      alert(err.message || "Failed to delete asset from Storage.");
+      alert(err.message || "Failed to delete asset.");
       setDeletingId(null);
     }
   };
@@ -96,7 +102,7 @@ export default function AdminMedia() {
               Media Library & Slot Placements
             </h1>
             <p className="text-xs text-slate-500 mt-1">
-              Discovers files directly from Supabase Storage bucket <code className="font-mono text-[#0052FF]">website-media</code>.
+              Discovers files directly from Supabase Storage bucket <code className="font-mono text-[#0052FF]">website-media</code> and supports manual Media URLs.
             </p>
           </div>
 
@@ -120,40 +126,38 @@ export default function AdminMedia() {
           </div>
         </div>
 
-        {/* PHASE 14 TEMPORARY DEBUG PANEL */}
+        {/* CONNECTION & STORAGE DIAGNOSTIC PANEL (Requirement 15) */}
         <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 space-y-3 font-mono text-xs shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="font-bold text-[#0052FF] flex items-center gap-2">
               <Terminal className="w-4 h-4" />
-              CMS DEBUG & VERIFICATION PANEL
+              SUPABASE STORAGE CONNECTION DIAGNOSTIC
             </span>
             <span className="text-[10px] text-slate-400">ROW: {CMS_STORE_ID}</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div>
-              <div className="text-slate-400 text-[10px]">SUPABASE DB:</div>
-              <div className={status?.database ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
-                {status?.database ? "CONNECTED ✓" : "OFFLINE / LOCAL"}
-              </div>
+              <div className="text-slate-400 text-[10px]">CONFIGURED PROJECT HOSTNAME:</div>
+              <div className="text-white font-bold truncate">{status?.hostname || SUPABASE_HOSTNAME}</div>
             </div>
 
             <div>
               <div className="text-slate-400 text-[10px]">STORAGE BUCKET:</div>
-              <div className={status?.storage ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
-                {status?.storage ? "CONNECTED (website-media)" : "UNVERIFIED"}
-              </div>
+              <div className="text-white font-bold">website-media</div>
             </div>
 
             <div>
-              <div className="text-slate-400 text-[10px]">MEDIA FILES DISCOVERED:</div>
-              <div className="text-white font-bold">{mediaAssets.length} Assets</div>
+              <div className="text-slate-400 text-[10px]">BUCKET STATUS:</div>
+              <div className={status?.bucketFound ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                {status?.bucketFound ? "CONNECTED ✓" : "BUCKET NOT FOUND"}
+              </div>
             </div>
 
             <div>
               <div className="text-slate-400 text-[10px]">WORKING SYSTEM SLOT:</div>
               <div className="text-blue-400 font-bold truncate">
-                {liveWorkingAsset?.url ? "LIVE URL SET" : "DEFAULT FALLBACK"}
+                {liveWorkingAsset?.url ? (liveWorkingAsset.source === 'manual-url' ? "MANUAL URL SET" : "STORAGE ASSET SET") : "DEFAULT FALLBACK"}
               </div>
             </div>
           </div>
@@ -232,7 +236,7 @@ export default function AdminMedia() {
                 const placements = getAssetPlacements(asset.id);
                 const isAssigned = placements.length > 0;
 
-                // PHASE I: Strictly calculate CURRENTLY LIVE using isSameAsset helper
+                // Strictly calculate CURRENTLY LIVE using isSameAsset helper
                 const isLiveInWorkingSystem = isSameAsset(asset, liveWorkingAsset);
 
                 return (
@@ -248,7 +252,7 @@ export default function AdminMedia() {
                       <div>
                         <h4 className="text-xs font-bold text-[#0B132B] truncate">{asset.name}</h4>
                         <div className="text-[11px] font-mono text-slate-400 mt-0.5 flex items-center justify-between">
-                          <span>{asset.aspectRatio || '16/9'} • {asset.fileSize || 'Asset'}</span>
+                          <span>{asset.source === 'manual-url' ? 'MANUAL URL' : 'SUPABASE STORAGE'}</span>
                         </div>
                       </div>
 
@@ -275,7 +279,7 @@ export default function AdminMedia() {
                           </div>
                         ) : (
                           <div className="p-2 rounded-xl bg-slate-100 text-[11px] font-mono text-slate-500 text-center font-bold">
-                            STORAGE ASSET (READY TO PLACE)
+                            MEDIA ASSET (READY TO PLACE)
                           </div>
                         )}
                       </div>
@@ -301,7 +305,7 @@ export default function AdminMedia() {
                           disabled={deletingId === asset.id}
                           onClick={() => handleDeleteAsset(asset)}
                           className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
-                          title="Delete Asset permanently"
+                          title="Delete Asset"
                         >
                           {deletingId === asset.id ? <Loader2 className="w-4 h-4 animate-spin text-red-600" /> : <Trash2 className="w-4 h-4" />}
                         </button>

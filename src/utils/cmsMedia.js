@@ -1,10 +1,14 @@
 /**
- * Project Buddy CMS Media Normalizer & Resolver
- * Single canonical media normalizer for types, URLs, version query strings, and asset equality.
+ * Project Buddy CMS Media Normalizer & Resolver v4.0
+ * Supports both Supabase Storage assets & Manual URL entries.
+ * Eliminates URL parameter mutation for raw public playback compatibility.
  */
 
 export function getMediaType(asset = {}) {
   if (!asset) return "image";
+
+  if (asset.mediaType === "video" || asset.type === "video") return "video";
+  if (asset.mediaType === "image" || asset.type === "image") return "image";
 
   const mime = String(
     asset.mimeType ||
@@ -29,7 +33,7 @@ export function getMediaType(asset = {}) {
   if (/\.(mp4|webm|mov|m4v|ogg)$/i.test(value)) return "video";
   if (/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(value)) return "image";
 
-  return asset.type === "video" ? "video" : "image";
+  return "image";
 }
 
 export function getMediaUrl(asset = {}) {
@@ -38,26 +42,24 @@ export function getMediaUrl(asset = {}) {
 }
 
 export function getVersionedMediaUrl(asset = {}) {
-  const url = getMediaUrl(asset);
-  if (!url) return "";
-
-  const version =
-    asset.updatedAt ||
-    asset.updated_at ||
-    asset.version ||
-    asset.createdAt ||
-    "";
-
-  if (!version) return url;
-
-  return `${url}${url.includes("?") ? "&" : "?"}cmsv=${encodeURIComponent(version)}`;
+  return getMediaUrl(asset);
 }
 
 export function isSameAsset(a, b) {
   if (!a || !b) return false;
 
-  const aPath = a.storagePath || a.path || a.url;
-  const bPath = b.storagePath || b.path || b.url;
+  const aPath = a.storagePath || a.path;
+  const bPath = b.storagePath || b.path;
 
-  return Boolean(aPath && bPath && aPath === bPath);
+  if (aPath && bPath) return aPath === bPath;
+
+  const cleanUrl = (asset) => {
+    const u = getMediaUrl(asset);
+    return u ? u.split("?")[0].trim() : "";
+  };
+
+  const aUrl = cleanUrl(a);
+  const bUrl = cleanUrl(b);
+
+  return Boolean(aUrl && bUrl && aUrl === bUrl);
 }

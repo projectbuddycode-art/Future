@@ -1,7 +1,5 @@
 /**
- * Project Buddy CMS Store Service v3.4 — Production Persistence & Realtime Verification Engine
- * Restricts localStorage fallback strictly to local development mode.
- * In production, saving/publishing requires a successful, verified write to Supabase Database.
+ * Project Buddy CMS Store Service v4.0 — Unified Storage & Manual URL Persistence Engine
  */
 
 import {
@@ -139,78 +137,7 @@ const defaultState = {
       published: true,
     }
   ],
-  mediaAssets: [
-    {
-      id: "media_hero_01",
-      name: "working-system-spatial.png",
-      url: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80",
-      type: "image",
-      width: 1200,
-      height: 675,
-      aspectRatio: "16/9",
-      fit: "contain",
-      focalPoint: { x: 50, y: 50 },
-      posterUrl: "",
-      alt: "Project Buddy Working System Spatial Visual",
-      fileSize: "240 KB",
-    },
-    {
-      id: "media_diamond_01",
-      name: "diamond-capture-scan.png",
-      url: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-      type: "image",
-      width: 1200,
-      height: 800,
-      aspectRatio: "3/2",
-      fit: "contain",
-      focalPoint: { x: 50, y: 50 },
-      posterUrl: "",
-      alt: "Diamond Capture System Device Mesh",
-      fileSize: "180 KB",
-    },
-    {
-      id: "media_institute_01",
-      name: "institute-os-dashboard.png",
-      url: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80",
-      type: "image",
-      width: 1200,
-      height: 675,
-      aspectRatio: "16/9",
-      fit: "contain",
-      focalPoint: { x: 50, y: 50 },
-      posterUrl: "",
-      alt: "InstituteOS Enterprise Control Interface",
-      fileSize: "310 KB",
-    },
-    {
-      id: "media_ai_reception_01",
-      name: "ai-receptionist-voice.png",
-      url: "https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=1200&q=80",
-      type: "image",
-      width: 1200,
-      height: 675,
-      aspectRatio: "16/9",
-      fit: "contain",
-      focalPoint: { x: 50, y: 50 },
-      posterUrl: "",
-      alt: "AI Receptionist Conversational Telemetry",
-      fileSize: "210 KB",
-    },
-    {
-      id: "media_atlas_01",
-      name: "atlas-ledger-mesh.png",
-      url: "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=1200&q=80",
-      type: "image",
-      width: 1200,
-      height: 675,
-      aspectRatio: "16/9",
-      fit: "contain",
-      focalPoint: { x: 50, y: 50 },
-      posterUrl: "",
-      alt: "ATLAS Financial Ledger Interface",
-      fileSize: "290 KB",
-    }
-  ],
+  mediaAssets: [],
   drafts: {},
   lastUpdated: new Date().toISOString(),
 };
@@ -270,9 +197,9 @@ export async function hydrateCMSFromCloud() {
 
   let combinedAssets = storageAssets;
   if (currentDbState?.mediaAssets) {
-    const storagePaths = new Set(storageAssets.map(a => a.storagePath));
-    const legacyOrCustom = currentDbState.mediaAssets.filter(a => !a.storagePath || !storagePaths.has(a.storagePath));
-    combinedAssets = [...storageAssets, ...legacyOrCustom];
+    const storagePaths = new Set(storageAssets.map(a => a.storagePath).filter(Boolean));
+    const manualOrCustom = currentDbState.mediaAssets.filter(a => a.source === 'manual-url' || !a.storagePath || !storagePaths.has(a.storagePath));
+    combinedAssets = [...storageAssets, ...manualOrCustom];
   }
 
   const updatedState = {
@@ -286,7 +213,6 @@ export async function hydrateCMSFromCloud() {
 
 /**
  * Saves and verifies state to Supabase Cloud Database.
- * In production, this requires a successful write + fresh SELECT verification.
  */
 export async function saveCMSState(newState) {
   const updatedState = {
@@ -305,12 +231,12 @@ export async function saveCMSState(newState) {
     }
 
     const storageAssets = await loadMediaLibraryFromStorage();
-    const storagePaths = new Set(storageAssets.map(a => a.storagePath));
-    const customAssets = (verifiedState.mediaAssets || []).filter(a => !a.storagePath || !storagePaths.has(a.storagePath));
+    const storagePaths = new Set(storageAssets.map(a => a.storagePath).filter(Boolean));
+    const manualOrCustom = (verifiedState.mediaAssets || []).filter(a => a.source === 'manual-url' || !a.storagePath || !storagePaths.has(a.storagePath));
 
     activeCMSState = {
       ...verifiedState,
-      mediaAssets: [...storageAssets, ...customAssets]
+      mediaAssets: [...storageAssets, ...manualOrCustom]
     };
   } else {
     activeCMSState = updatedState;
@@ -338,13 +264,10 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   if (directMedia && (directMedia.url || directMedia.src)) {
     const rawUrl = directMedia.url || directMedia.src;
     const isVid = getMediaType(directMedia) === 'video';
-    const versionedUrl = directMedia.updatedAt
-      ? `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(directMedia.updatedAt)}`
-      : rawUrl;
 
     return {
-      src: versionedUrl,
-      url: versionedUrl,
+      src: rawUrl,
+      url: rawUrl,
       type: isVid ? 'video' : 'image',
       fit: directMedia.fit || 'contain',
       aspectRatio: directMedia.aspectRatio || '16/9',
@@ -359,12 +282,9 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
   if (assignment) {
     if (assignment.url) {
       const isVid = getMediaType(assignment) === 'video';
-      const versionedUrl = assignment.updatedAt
-        ? `${assignment.url}${assignment.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(assignment.updatedAt)}`
-        : assignment.url;
       return {
-        src: versionedUrl,
-        url: versionedUrl,
+        src: assignment.url,
+        url: assignment.url,
         type: isVid ? 'video' : 'image',
         fit: assignment.fit || 'contain',
         aspectRatio: assignment.aspectRatio || '16/9',
@@ -377,15 +297,10 @@ export function getSectionMedia(pageId, sectionId, slotId, isMobile = false) {
 
     if (asset) {
       const isVid = getMediaType(asset) === 'video';
-      const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
-      const versionedUrl = versionDate
-        ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(versionDate)}`
-        : asset.url;
-
       return {
         ...asset,
-        src: versionedUrl,
-        url: versionedUrl,
+        src: asset.url,
+        url: asset.url,
         type: isVid ? 'video' : 'image',
         fit: assignment.fit || asset.fit || 'contain',
         focalPoint: { x: assignment.focalX ?? 50, y: assignment.focalY ?? 50 },
@@ -414,17 +329,12 @@ export function getHomepageBackground(isMobile = false) {
     return { mode: 'default' };
   }
 
-  const versionDate = asset.createdAt || asset.updatedAt || state.lastUpdated;
-  const versionedUrl = versionDate
-    ? `${asset.url}${asset.url.includes('?') ? '&' : '?'}cmsv=${encodeURIComponent(versionDate)}`
-    : asset.url;
-
   return {
     mode: 'custom',
     asset: {
       ...asset,
-      src: versionedUrl,
-      url: versionedUrl,
+      src: asset.url,
+      url: asset.url,
       type: getMediaType(asset)
     },
     fit: assignment.fit || 'cover',
@@ -475,7 +385,7 @@ export async function setHomepageBackground(mode, desktopMediaId = '', mobileMed
 }
 
 /**
- * Assign Media to Section Slot with Deep Structural Merge
+ * Assign Media to Section Slot with Support for Storage & Manual URL Objects
  */
 export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaId, mobileMediaId = '', fit = 'contain', directMediaAsset = null) {
   const state = getCMSState();
@@ -487,7 +397,21 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
   const mediaUrl = targetAsset?.url || '';
   const mediaType = getMediaType(targetAsset || { url: mediaUrl });
 
-  const mediaSlotObj = {
+  const isManual = targetAsset?.source === 'manual-url' || !targetAsset?.storagePath;
+
+  const mediaSlotObj = isManual ? {
+    source: "manual-url",
+    type: mediaType,
+    url: mediaUrl,
+    storagePath: null,
+    bucket: null,
+    mimeType: targetAsset?.mimeType || null,
+    name: targetAsset?.name || "External media",
+    updatedAt: timestamp,
+    fit: fit || 'contain',
+    aspectRatio: targetAsset?.aspectRatio || '16/9'
+  } : {
+    source: "supabase-storage",
     type: mediaType,
     url: mediaUrl,
     bucket: MEDIA_BUCKET,
@@ -516,7 +440,7 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
         fit,
         url: mediaUrl,
         type: mediaType,
-        storagePath: mediaSlotObj.storagePath,
+        storagePath: mediaSlotObj.storagePath || null,
         updatedAt: timestamp
       }
     }
@@ -527,45 +451,43 @@ export async function assignMediaToSlot(pageId, sectionId, slotId, desktopMediaI
 }
 
 /**
- * Delete Media Asset permanently from Supabase Storage and remove any dangling CMS references (Steps J, K, L)
+ * Delete Media Asset supporting BOTH Supabase Storage Assets & Manual URL entries (Requirement 12)
  */
 export async function deleteMediaAsset(asset) {
   if (!asset) throw new Error("No asset provided for deletion.");
 
-  const storagePath = asset.storagePath || asset.path;
-  if (!storagePath) {
-    throw new Error("Invalid asset: Missing storagePath required for Storage deletion.");
-  }
+  const isStorageAsset = asset.source === 'supabase-storage' || Boolean(asset.storagePath);
 
-  // 1. Delete object from Supabase Storage bucket 'website-media'
-  if (isSupabaseConfigured && supabase) {
-    const { error: storageErr } = await supabase.storage
-      .from(MEDIA_BUCKET)
-      .remove([storagePath]);
+  if (isStorageAsset && asset.storagePath) {
+    if (isSupabaseConfigured && supabase) {
+      const { error: storageErr } = await supabase.storage
+        .from(asset.bucket || MEDIA_BUCKET)
+        .remove([asset.storagePath]);
 
-    if (storageErr) {
-      throw new Error(`Supabase Storage Deletion Error: ${storageErr.message}`);
+      if (storageErr) {
+        throw new Error(`Supabase Storage Deletion Error: ${storageErr.message}`);
+      }
     }
   }
 
-  // 2. Remove matching dangling references from CMS state.media and state.sectionMedia
+  // Remove matching references from CMS state
   const state = getCMSState();
   const nextMedia = { ...(state.media || {}) };
   const nextSectionMedia = { ...(state.sectionMedia || {}) };
 
   Object.keys(nextMedia).forEach(slotKey => {
-    if (isSameAsset(nextMedia[slotKey], asset) || nextMedia[slotKey]?.storagePath === storagePath) {
+    if (isSameAsset(nextMedia[slotKey], asset)) {
       delete nextMedia[slotKey];
     }
   });
 
   Object.keys(nextSectionMedia).forEach(slotKey => {
-    if (nextSectionMedia[slotKey]?.storagePath === storagePath || nextSectionMedia[slotKey]?.desktopMediaId === asset.id) {
+    if (isSameAsset(nextSectionMedia[slotKey], asset) || nextSectionMedia[slotKey]?.desktopMediaId === asset.id) {
       delete nextSectionMedia[slotKey];
     }
   });
 
-  const updatedAssets = (state.mediaAssets || []).filter(m => !isSameAsset(m, asset) && m.storagePath !== storagePath && m.id !== asset.id);
+  const updatedAssets = (state.mediaAssets || []).filter(m => !isSameAsset(m, asset) && m.id !== asset.id);
 
   const newState = {
     ...state,
@@ -574,10 +496,13 @@ export async function deleteMediaAsset(asset) {
     mediaAssets: updatedAssets
   };
 
-  // 3. Persist cleaned state & re-hydrate from cloud
   await saveCMSState(newState);
   await hydrateCMSFromCloud();
-  return newState;
+
+  return {
+    success: true,
+    message: isStorageAsset ? "Storage object and CMS reference deleted." : "URL reference removed."
+  };
 }
 
 /**
