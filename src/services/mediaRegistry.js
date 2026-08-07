@@ -1,6 +1,6 @@
 /**
- * Centralized Section Media Registry for Project Buddy
- * Defines all pages, media-capable sections, and supported slots including Homepage Hero Background.
+ * Centralized Section Media Registry for Project Buddy v4.3
+ * Defines all pages, media-capable sections, and canonical slot mappings.
  */
 
 export const MEDIA_REGISTRY = {
@@ -8,42 +8,34 @@ export const MEDIA_REGISTRY = {
     name: "Home",
     sections: {
       hero: {
-        name: "Hero Section",
+        name: "01 Hero Section",
         slots: {
-          backgroundVisual: { name: "Homepage Background", defaultFit: "cover" },
+          backgroundVisual: { name: "Hero Background Media", defaultFit: "cover" },
           heroVisual: { name: "Main Hero Visual", defaultFit: "contain" },
-          mobileVisual: { name: "Mobile Hero Visual", defaultFit: "contain" },
         }
       },
       workingSystem: {
-        name: "Working System Diagram",
+        name: "02 Working System Diagram",
         slots: {
           mainVisual: { name: "Main Visual (Working System)", defaultFit: "contain" },
-          mobileVisual: { name: "Mobile Visual Override", defaultFit: "contain" },
         }
       },
       capabilities: {
-        name: "Capabilities Showcase",
+        name: "03 Engineering Capabilities",
         slots: {
-          businessSoftwareVisual: { name: "Business Software Visual", defaultFit: "contain" },
-          automationVisual: { name: "AI Automation Visual", defaultFit: "contain" },
-          dataSystemsVisual: { name: "Data Systems Visual", defaultFit: "contain" },
-          integrationVisual: { name: "API Integration Visual", defaultFit: "contain" },
+          businessSoftware: { name: "Business Software Visual", defaultFit: "contain" },
+          internalPlatforms: { name: "Internal Platforms Visual", defaultFit: "contain" },
+          customerPortals: { name: "Customer Portals Visual", defaultFit: "contain" },
+          operationalTools: { name: "Operational Tools Visual", defaultFit: "contain" },
         }
       },
       selectedSystems: {
-        name: "Selected Systems Showcase",
+        name: "04 Systems in Production",
         slots: {
-          diamondCaptureVisual: { name: "Diamond Capture System Visual", defaultFit: "contain" },
-          instituteOSVisual: { name: "InstituteOS Visual", defaultFit: "contain" },
-          aiReceptionistVisual: { name: "AI Receptionist Visual", defaultFit: "contain" },
-          atlasVisual: { name: "ATLAS Ledger Visual", defaultFit: "contain" },
-        }
-      },
-      cta: {
-        name: "Final CTA Section",
-        slots: {
-          backgroundVisual: { name: "CTA Ambient Background", defaultFit: "cover" },
+          diamondCapture: { name: "Diamond Capture System Visual", defaultFit: "cover" },
+          instituteOS: { name: "InstituteOS Visual", defaultFit: "cover" },
+          aiReceptionist: { name: "AI Receptionist Visual", defaultFit: "cover" },
+          atlas: { name: "ATLAS Ledger Visual", defaultFit: "cover" },
         }
       }
     }
@@ -56,105 +48,19 @@ export const MEDIA_REGISTRY = {
         slots: {
           heroVisual: { name: "Services Hero Visual", defaultFit: "contain" }
         }
-      },
-      businessSoftware: {
-        name: "Business Software & Operations",
-        slots: {
-          mainVisual: { name: "Service Visual", defaultFit: "contain" }
-        }
-      },
-      aiAutomation: {
-        name: "AI Automation & Workflows",
-        slots: {
-          mainVisual: { name: "AI Automation Visual", defaultFit: "contain" }
-        }
-      },
-      dataSystems: {
-        name: "Data Systems & Intelligence",
-        slots: {
-          mainVisual: { name: "Data Systems Visual", defaultFit: "contain" }
-        }
-      },
-      systemIntegration: {
-        name: "API Mesh & System Integration",
-        slots: {
-          mainVisual: { name: "API Mesh Visual", defaultFit: "contain" }
-        }
-      },
-      cloudArchitecture: {
-        name: "Cloud Infrastructure & DevOps",
-        slots: {
-          mainVisual: { name: "Cloud Architecture Visual", defaultFit: "contain" }
-        }
       }
     }
   },
   systems: {
-    name: "Control Room Systems",
+    name: "Systems Control Room",
     sections: {
       controlRoom: {
-        name: "Control Room Interface",
+        name: "Control Room Systems",
         slots: {
-          diamondCaptureVisual: { name: "Diamond Capture Visual", defaultFit: "contain" },
-          instituteOSVisual: { name: "InstituteOS Visual", defaultFit: "contain" },
-          aiReceptionistVisual: { name: "AI Receptionist Visual", defaultFit: "contain" },
-          atlasVisual: { name: "ATLAS Financial Visual", defaultFit: "contain" }
-        }
-      }
-    }
-  },
-  howItWorks: {
-    name: "How It Works",
-    sections: {
-      hero: {
-        name: "Hero Section",
-        slots: {
-          heroVisual: { name: "Methodology Hero Visual", defaultFit: "contain" }
-        }
-      },
-      process: {
-        name: "7-Stage Workflow Process",
-        slots: {
-          mainVisual: { name: "Process Flow Visual", defaultFit: "contain" }
-        }
-      }
-    }
-  },
-  about: {
-    name: "About",
-    sections: {
-      hero: {
-        name: "Hero Section",
-        slots: {
-          heroVisual: { name: "About Hero Visual", defaultFit: "contain" }
-        }
-      },
-      philosophy: {
-        name: "Engineering Philosophy",
-        slots: {
-          supportingVisual: { name: "Philosophy Blueprint Visual", defaultFit: "contain" }
-        }
-      }
-    }
-  },
-  contact: {
-    name: "Contact",
-    sections: {
-      hero: {
-        name: "Hero Section",
-        slots: {
-          heroVisual: { name: "Discovery Gateway Visual", defaultFit: "contain" }
-        }
-      }
-    }
-  },
-  privacy: {
-    name: "Privacy Policy",
-    sections: {
-      hero: {
-        name: "Hero Section",
-        slots: {
-          heroVisual: { name: "Data Security Visual", defaultFit: "contain" }
+          diamondCapture: { name: "Diamond Capture Visual", defaultFit: "cover" },
+          instituteOS: { name: "InstituteOS Visual", defaultFit: "cover" },
+          aiReceptionist: { name: "AI Receptionist Visual", defaultFit: "cover" },
+          atlas: { name: "ATLAS Financial Visual", defaultFit: "cover" }
         }
       }
     }

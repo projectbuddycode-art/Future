@@ -9,10 +9,8 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const MEDIA_BUCKET = 'website-media';
 export const CMS_STORE_ID = 'main_cms_state';
 
-// Extract configured project hostname for diagnostics
 export const SUPABASE_HOSTNAME = supabaseUrl ? new URL(supabaseUrl).hostname : 'NOT_CONFIGURED';
 
-// Centralized single Supabase client with persistent Auth session enabled
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -88,62 +86,82 @@ export async function getSupabaseStatus() {
 }
 
 /**
- * Dynamically Load Discovered Media Library Assets directly from Supabase Storage
- * Generates URLs ONLY via supabase.storage.from(MEDIA_BUCKET).getPublicUrl(storagePath)
+ * Recursive Storage File Discovery — Filters out directories and non-media entries
  */
-export async function loadMediaLibraryFromStorage() {
+export async function listStorageFilesRecursive(bucket, folderPath = '', seen = new Set()) {
   if (!isSupabaseConfigured || !supabase) return [];
+  const fileAssets = [];
 
-  const foldersToScan = ['', 'home/hero-bg', 'home/workingSystem', 'general', 'home', 'services', 'systems', 'about'];
-  const discoveredAssets = [];
-  const seenPaths = new Set();
+  try {
+    const { data: items, error } = await supabase.storage
+      .from(bucket)
+      .list(folderPath, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
 
-  for (const folder of foldersToScan) {
-    try {
-      const { data: files, error } = await supabase.storage
-        .from(MEDIA_BUCKET)
-        .list(folder, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+    if (error || !items) return fileAssets;
 
-      if (error || !files) continue;
+    for (const item of items) {
+      if (!item.name || item.name === '.emptyFolderPlaceholder') continue;
 
-      for (const file of files) {
-        if (!file.name || file.name === '.emptyFolderPlaceholder') continue;
+      const currentPath = folderPath ? `${folderPath}/${item.name}` : item.name;
 
-        const storagePath = folder ? `${folder}/${file.name}` : file.name;
-        if (seenPaths.has(storagePath)) continue;
-        seenPaths.add(storagePath);
+      // Check if item is a folder / prefix
+      const isFolder = (!item.id && !item.metadata) || (!item.metadata?.mimetype && !item.name.includes('.'));
 
-        const mime = file.metadata?.mimetype || '';
-        const detectedType = getMediaType({ name: file.name, mimeType: mime, storagePath });
+      if (isFolder) {
+        if (!seen.has(currentPath)) {
+          seen.add(currentPath);
+          const subFiles = await listStorageFilesRecursive(bucket, currentPath, seen);
+          fileAssets.push(...subFiles);
+        }
+      } else {
+        const mime = item.metadata?.mimetype || '';
+        const hasMediaExt = Boolean(item.name.match(/\.(mp4|webm|mov|m4v|ogg|png|jpe?g|webp|gif|avif|svg)$/i));
+        const hasMediaMime = mime.startsWith('video/') || mime.startsWith('image/');
+
+        // Skip folders or non-media files without extension or mime
+        if (!hasMediaExt && !hasMediaMime) continue;
+
+        if (seen.has(currentPath)) continue;
+        seen.add(currentPath);
+
+        const detectedType = getMediaType({ name: item.name, mimeType: mime, storagePath: currentPath });
 
         const { data: publicData } = supabase.storage
-          .from(MEDIA_BUCKET)
-          .getPublicUrl(storagePath);
+          .from(bucket)
+          .getPublicUrl(currentPath);
 
         const publicUrl = publicData?.publicUrl || '';
 
-        discoveredAssets.push({
-          id: `media_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        fileAssets.push({
+          id: `media_${item.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
           source: 'supabase-storage',
-          name: file.name,
+          name: item.name,
           url: publicUrl,
-          bucket: MEDIA_BUCKET,
-          storagePath: storagePath,
+          bucket: bucket,
+          storagePath: currentPath,
           type: detectedType,
           mimeType: mime || (detectedType === 'video' ? 'video/mp4' : 'image/jpeg'),
-          createdAt: file.created_at || new Date().toISOString(),
-          fileSize: file.metadata?.size ? `${(file.metadata.size / (1024 * 1024)).toFixed(2)} MB` : 'Asset',
+          createdAt: item.created_at || new Date().toISOString(),
+          fileSize: item.metadata?.size ? `${(item.metadata.size / (1024 * 1024)).toFixed(2)} MB` : 'Asset',
           aspectRatio: "16/9",
           fit: "contain",
-          alt: file.name
+          alt: item.name
         });
       }
-    } catch (err) {
-      console.warn(`Storage list error for folder [${folder}]:`, err);
     }
+  } catch (err) {
+    console.warn(`Storage list error for [${folderPath}]:`, err);
   }
 
-  return discoveredAssets;
+  return fileAssets;
+}
+
+/**
+ * Dynamically Load Discovered Media Library Assets directly from Supabase Storage
+ */
+export async function loadMediaLibraryFromStorage() {
+  if (!isSupabaseConfigured || !supabase) return [];
+  return await listStorageFilesRecursive(MEDIA_BUCKET, '');
 }
 
 /**

@@ -4,9 +4,13 @@ import { motion } from 'framer-motion';
 import { ArrowRight, ShieldCheck, Layers, Terminal, Sparkles, Calendar, Mail, Linkedin, Cpu, Database, Server, Code } from 'lucide-react';
 import { useCMS } from '../context/CMSContext';
 import HeroBackground from '../components/HeroBackground';
+import HowWeThink from '../components/HowWeThink';
 import DisconnectedToSystem from '../components/DisconnectedToSystem';
+import TransformationFramework from '../components/TransformationFramework';
 import CapabilitiesShowcase from '../components/CapabilitiesShowcase';
+import OperationalIntelligence from '../components/OperationalIntelligence';
 import SystemsShowcase from '../components/SystemsShowcase';
+import EnterpriseOutcomes from '../components/EnterpriseOutcomes';
 import HowItWorksWorkflow from '../components/HowItWorksWorkflow';
 import ContactModal from '../components/ContactModal';
 import { LogoLoop } from '../components/LogoLoop';
@@ -43,12 +47,12 @@ export default function Home() {
   };
 
   return (
-    <div className="relative z-10">
+    <div className="relative z-10 bg-[#FAF9F6]">
       
       {/* HOMEPAGE HERO SECTION (STRICT HERO BOUNDARY) */}
-      <section className="relative hero pt-32 pb-16 md:pt-40 md:pb-24 overflow-hidden">
+      <section className="relative hero pt-32 pb-16 md:pt-40 md:pb-24 overflow-hidden min-h-[90vh] flex items-center justify-center">
         
-        {/* Hero Background (Default WebGL / Custom Video — Terminated at Hero Boundary) */}
+        {/* Hero Background Layer (WebGL / Constellation Network / Video — Terminated at Hero Boundary) */}
         <HeroBackground />
 
         {/* Hero Content Layer */}
@@ -191,6 +195,16 @@ export default function Home() {
         </div>
       </motion.section>
 
+      {/* NEW SECTION 01: HOW WE THINK METHODOLOGY */}
+      <motion.div
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-60px" }}
+        variants={sectionVariant}
+      >
+        <HowWeThink />
+      </motion.div>
+
       {/* SECTION 02: DISCONNECTED TO WORKING SYSTEM */}
       <motion.div
         initial="hidden"
@@ -201,7 +215,17 @@ export default function Home() {
         <DisconnectedToSystem />
       </motion.div>
 
-      {/* CAPABILITIES */}
+      {/* NEW SECTION 03: TRANSFORMATION FRAMEWORK METHODOLOGY */}
+      <motion.div
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-60px" }}
+        variants={sectionVariant}
+      >
+        <TransformationFramework />
+      </motion.div>
+
+      {/* SECTION 04: CAPABILITIES SHOWCASE */}
       <motion.div
         initial="hidden"
         whileInView="visible"
@@ -211,7 +235,17 @@ export default function Home() {
         <CapabilitiesShowcase />
       </motion.div>
 
-      {/* SELECTED SYSTEMS SHOWCASE */}
+      {/* NEW SECTION 05: OPERATIONAL INTELLIGENCE BLUEPRINT */}
+      <motion.div
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-60px" }}
+        variants={sectionVariant}
+      >
+        <OperationalIntelligence />
+      </motion.div>
+
+      {/* SECTION 06: ENGINEERED SYSTEMS IN PRODUCTION */}
       <motion.div
         initial="hidden"
         whileInView="visible"
@@ -221,7 +255,17 @@ export default function Home() {
         <SystemsShowcase />
       </motion.div>
 
-      {/* HOW IT WORKS */}
+      {/* NEW SECTION 07: ENTERPRISE OUTCOMES */}
+      <motion.div
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-60px" }}
+        variants={sectionVariant}
+      >
+        <EnterpriseOutcomes />
+      </motion.div>
+
+      {/* SECTION 08: HOW IT WORKS WORKFLOW */}
       <motion.div
         initial="hidden"
         whileInView="visible"

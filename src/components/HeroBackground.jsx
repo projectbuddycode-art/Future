@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SplashCursor from './SplashCursor';
+import ConstellationCanvas from './ConstellationCanvas';
 import { useCMS } from '../context/CMSContext';
 
 /**
@@ -7,10 +8,11 @@ import { useCMS } from '../context/CMSContext';
  * Manages the background for the Homepage Hero section ONLY.
  * Does NOT affect sections below the Hero.
  * 
- * Supports:
- * 1. Default Original WebGL / Ambient Tech Grid Hero Background (Permanent Fallback)
- * 2. Uploaded Custom Cinematic Hero Video (Autoplay, muted, loop, playsInline, position: absolute, object-fit: cover)
- * 3. Uploaded Custom Hero Image
+ * Layers:
+ * Layer 1: White / Light Background
+ * Layer 2: Animated Constellation Network (particles & 1px connecting lines)
+ * Layer 3: Soft Radial Lighting Glow
+ * Layer 4: Custom CMS Hero Video / Image (if assigned)
  */
 export default function HeroBackground() {
   const { getHomepageBg } = useCMS();
@@ -46,12 +48,16 @@ export default function HeroBackground() {
   return (
     <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden hero-background">
       
-      {/* 1. DEFAULT HERO BACKGROUND (Coded Fallback — WebGL SplashCursor + Tech Grid + Ambient Glow) */}
+      {/* LAYER 1 & 2: DEFAULT BACKGROUND + CONSTELLATION NETWORK */}
       <div
         className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
           isCustom && mediaLoaded ? 'opacity-0' : 'opacity-100'
         }`}
       >
+        {/* Layer 2: Constellation Canvas */}
+        <ConstellationCanvas />
+
+        {/* SplashCursor Fluid Ambient */}
         <SplashCursor
           SIM_RESOLUTION={128}
           DYE_RESOLUTION={1440}
@@ -63,14 +69,16 @@ export default function HeroBackground() {
           SPLAT_FORCE={6000}
           COLOR_UPDATE_SPEED={10}
         />
-        <div className="absolute inset-0 bg-tech-grid opacity-60 pointer-events-none" />
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[800px] h-[380px] bg-gradient-to-tr from-[#0052FF]/12 via-[#3B82F6]/6 to-transparent rounded-full blur-3xl pointer-events-none" />
+        
+        {/* Layer 3: Soft Radial Lighting Glow */}
+        <div className="absolute inset-0 bg-tech-grid opacity-40 pointer-events-none" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[800px] h-[380px] bg-gradient-to-tr from-[#0052FF]/10 via-[#3B82F6]/5 to-transparent rounded-full blur-3xl pointer-events-none" />
       </div>
 
-      {/* 2. CUSTOM HERO BACKGROUND (Video / Image with Cover & Focal Point — TERMINATES AT HERO BOUNDARY) */}
+      {/* LAYER 4: CUSTOM HERO BACKGROUND VIDEO / IMAGE (CMS CONTROLLED) */}
       {isCustom && mediaSrc && (
         <div
-          className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
+          className={`absolute inset-0 transition-opacity duration-700 ease-in-out z-20 ${
             mediaLoaded ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -99,7 +107,6 @@ export default function HeroBackground() {
             />
           )}
 
-          {/* Optional Readability Overlay */}
           {bgConfig.overlay === 'light' && (
             <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-[1px]" />
           )}
