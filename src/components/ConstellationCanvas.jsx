@@ -1,10 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 
 /**
- * ConstellationCanvas Component
- * Animated enterprise constellation network:
- * Small white-blue particles drifting slowly, connecting with thin 1px lines
- * at 10-18% opacity. Uses canvas API & requestAnimationFrame with IntersectionObserver pause.
+ * ConstellationCanvas Component — Performance-Optimized Enterprise Network
+ * Small particles drifting slowly, connecting with thin 1px lines at 10-18% opacity.
+ * Automatically throttled for mobile (25 particles vs 40 desktop) and paused when offscreen.
  */
 export default function ConstellationCanvas() {
   const canvasRef = useRef(null);
@@ -13,36 +12,41 @@ export default function ConstellationCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Honor reduced motion accessibility
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+
     const ctx = canvas.getContext('2d');
     let animationFrameId;
     let width = 0;
     let height = 0;
     let isVisible = true;
 
+    const isMobile = window.innerWidth <= 768;
+    const particleCount = isMobile ? 22 : 38;
+    const maxDistance = isMobile ? 100 : 130;
     const particles = [];
-    const particleCount = 45;
-    const maxDistance = 140;
 
     const resize = () => {
       if (!canvas.parentElement) return;
       width = canvas.parentElement.clientWidth;
       height = canvas.parentElement.clientHeight;
-      canvas.width = width * window.devicePixelRatio;
-      canvas.height = height * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      canvas.width = width * (window.devicePixelRatio || 1);
+      canvas.height = height * (window.devicePixelRatio || 1);
+      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
     };
 
     resize();
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', resize, { passive: true });
 
-    // Initialize particles
     for (let i = 0; i < particleCount; i++) {
       particles.push({
         x: Math.random() * (width || 1200),
         y: Math.random() * (height || 800),
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
-        radius: Math.random() * 1.5 + 1.2,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        radius: Math.random() * 1.2 + 1.0,
       });
     }
 
@@ -51,7 +55,6 @@ export default function ConstellationCanvas() {
 
       ctx.clearRect(0, 0, width, height);
 
-      // Update and draw particles
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.x += p.vx;
@@ -62,18 +65,21 @@ export default function ConstellationCanvas() {
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 82, 255, 0.4)';
+        ctx.fillStyle = 'rgba(0, 82, 255, 0.35)';
         ctx.fill();
 
-        // Connect nearby particles with thin elegant lines
+        let connectionCount = 0;
         for (let j = i + 1; j < particles.length; j++) {
+          if (connectionCount >= 2) break; // Max 2 connections per particle to ensure 120fps capability
+
           const p2 = particles[j];
           const dx = p.x - p2.x;
           const dy = p.y - p2.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < maxDistance) {
-            const alpha = (1 - dist / maxDistance) * 0.16; // 10-18% opacity
+            connectionCount++;
+            const alpha = (1 - dist / maxDistance) * 0.14; // 10-18% opacity
             ctx.beginPath();
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(p2.x, p2.y);
@@ -87,13 +93,14 @@ export default function ConstellationCanvas() {
       animationFrameId = requestAnimationFrame(draw);
     };
 
-    // Pause animation when Hero goes out of view
     const observer = new IntersectionObserver(
       ([entry]) => {
         isVisible = entry.isIntersecting;
         if (isVisible) {
           cancelAnimationFrame(animationFrameId);
           draw();
+        } else {
+          cancelAnimationFrame(animationFrameId);
         }
       },
       { threshold: 0.05 }
@@ -113,7 +120,7 @@ export default function ConstellationCanvas() {
     <canvas
       ref={canvasRef}
       className="absolute inset-0 w-full h-full pointer-events-none z-10"
-      style={{ opacity: 0.85 }}
+      style={{ opacity: 0.8 }}
     />
   );
 }

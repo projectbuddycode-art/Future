@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   getMediaType,
   getVersionedMediaUrl
 } from "../utils/cmsMedia";
 
 /**
- * CmsMedia Component — Canonical Single Media Renderer v4.1
- * Includes play-on-hover video preview, clean error messaging, and responsive fit controls.
+ * CmsMedia Component — Canonical Single Media Renderer v5.1
+ * Pause-on-scroll IntersectionObserver video playback, hover preview controls,
+ * and lazy load image handling.
  */
 export default function CmsMedia({
   asset,
@@ -16,12 +17,34 @@ export default function CmsMedia({
   interactiveHover = false
 }) {
   const [loadError, setLoadError] = useState(false);
-
-  if (!asset) return fallback;
+  const videoRef = useRef(null);
 
   const type = getMediaType(asset);
   const src = getVersionedMediaUrl(asset);
 
+  // IntersectionObserver to pause video playback when out of viewport
+  useEffect(() => {
+    if (type !== 'video' || !videoRef.current) return;
+
+    const videoEl = videoRef.current;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          if (!interactiveHover) {
+            videoEl.play().catch(() => {});
+          }
+        } else {
+          videoEl.pause();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(videoEl);
+    return () => observer.disconnect();
+  }, [type, src, interactiveHover]);
+
+  if (!asset) return fallback;
   if (!src) return fallback;
 
   if (loadError) {
@@ -38,9 +61,10 @@ export default function CmsMedia({
     return (
       <video
         key={src}
+        ref={videoRef}
         src={src}
         className={className}
-        autoPlay
+        autoPlay={!interactiveHover}
         muted
         loop
         playsInline
